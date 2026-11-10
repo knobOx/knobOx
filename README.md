@@ -4,9 +4,21 @@
 
 ## Why this exists
 
-Hi! Quick background: I own an OXI E16 and an OXI One MK2, and right now the E16 is the one that matters for this. I run Linux at home, and there's no OXI App for it. I also really like editing scenes on a laptop instead of on the device. And honestly, I avoid Windows like the plague, at least in my private setup. 😄 So I built this editor and taught it to talk to the E16 directly.
+Hi! I own an OXI E16 and an OXI One MK2, and right now the E16 is the one that matters for this. Here's what bugged me:
 
-The name? Knobs, a workshop, and an "Ox" as a nod to the hardware. The E16 is the only device for now; more OXI gear may follow. It's a hobby project, shared in a community spirit. It works for me, but it isn't polished software, so take it as it is. Ideas, bug reports and pull requests are very welcome.
+1. **There's no OXI App for Linux.** I run Linux at home, and honestly I avoid Windows like the plague, at least in my private setup. 😄 knobOx runs in the browser and talks to the E16 directly over USB.
+2. **It's hard to see what's assigned and what isn't.** In the OXI App you can easily assign the same CC twice by accident without noticing.
+3. **Endless clicking.** By default, push encoders have no CCs assigned at all, so you end up setting everything by hand, one click at a time.
+
+So knobOx focuses on overview and speed:
+
+- **Duplicate detection** is my favorite part: a CC overview for all 16 channels, duplicate assignments highlighted, a list of free CCs per channel, and one click to jump to the encoder in question.
+- **Bulk editing:** distribute CCs across a selection, a page or a page range in one go (optionally skipping CCs that are already taken), set up all push encoders as CCs at once, name encoders by pattern, apply colors and gradients.
+- Workflow-wise I took some inspiration from the Faderfox EC4 web editor.
+
+It's a hobby project, shared in a community spirit. It works for me, but it isn't polished software, so take it as it is. Ideas, bug reports and pull requests are very welcome.
+
+**Made with AI assistance:** knobOx was built together with Claude (Anthropic) as a coding assistant, from the reverse engineering of the USB protocol to the code and these docs. Claude is credited as co-author in the commits. The transfer code is checked against USB captures from my own E16 (see the tests), but keep the AI part in mind when you read the code.
 
 **Scripts:** I haven't really looked into the E16's Lua scripting yet. Scenes with scripts are transferred as they are, but there is no script editing. That might come later, or feel free to code it in yourself!
 
@@ -113,6 +125,11 @@ test/               browser test page and capture fixtures
 ## License
 
 [MIT](LICENSE): do whatever you like with it. It comes without any warranty, and nobody involved is liable for anything that happens when you use it.
+
+## Authors
+
+- Gabriel Köhl ([@gabrielkoehl](https://github.com/gabrielkoehl))
+- Claude (Anthropic), AI coding assistant, co-author
 
 ## Thanks
 
