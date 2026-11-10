@@ -196,7 +196,7 @@
         status.textContent = 'Done: "' + S.scene.title + '" is now in slot ' + slot + '.';
         toast('Sent to E16 (slot ' + slot + ')');
       } catch (e) {
-        status.textContent = 'Error: ' + e.message;
+        status.textContent = 'Error: ' + transferError(e);
       } finally {
         btnGo.disabled = btnConnect.disabled = false;
       }
@@ -309,10 +309,21 @@
       const midi = await connectMidi();
       return await fn(midi, (n, total) => { S.lib.status = label + ' … ' + n + '/' + total; renderLibrary(); });
     } catch (e) {
-      toast(e.message, true);
+      toast(transferError(e), true);
     } finally {
       S.lib.busy = false; S.lib.status = ''; renderLibrary();
     }
+  }
+  /*
+   * Error text for device transfers. On Linux, the ALSA sequencer's MIDI output buffer is 4 KB by default
+   * (snd_seq_midi output_buffer_size); the kernel silently drops what does not fit of a larger SysEx
+   * message, so the 9 KB script block arrives incomplete and the E16 never answers it.
+   */
+  const ALSA_BUFFER_HINT = 'Linux: the kernel\'s MIDI output buffer (4 KB by default) is too small for the 9 KB script block, so the block arrived incomplete. '
+    + 'Increase it, then reload this page: sudo sh -c "echo 32768 > /sys/module/snd_seq_midi/parameters/output_buffer_size". '
+    + 'To keep it after a reboot: echo "options snd-seq-midi output_buffer_size=32768" | sudo tee /etc/modprobe.d/snd-seq-midi.conf';
+  function transferError(e) {
+    return e.message + (e.timeout && e.size > 4096 && onLinux() ? ' ' + ALSA_BUFFER_HINT : '');
   }
 
   // ---------- library: scene folder + device slots ----------
@@ -681,7 +692,7 @@
       row('Output', selectEl(M.PAGE_OUTPUTS, p.output, v => commit(() => { p.output = v; })),
         'Other values not decoded yet'),
       el('span', { class: 'inl' },
-        el('button', { class: 'btn small', title: 'Clear name and abbreviation of all 16 encoders on this page', onclick: () => clearNames(pageTargets(), 'both') }, 'Clear names'),
+        el('button', { class: 'btn small', title: 'Reset name and abbreviation of all 16 encoders on this page to E1 … E16', onclick: () => clearNames(pageTargets(), 'both') }, 'Reset names'),
         el('button', { class: 'btn small', title: 'Set the color of all 16 encoders on this page to white', onclick: () => setWhite(pageTargets()) }, 'All white')),
     );
   }
@@ -689,9 +700,11 @@
   function clearNames(t, target) {
     commit(() => t.forEach(x => {
       const enc = S.scene.pages[x.p].encoders[x.e];
-      if (target !== 'abbr') enc.name = '';
-      if (target !== 'name') enc.abbr = '';
-    }), 'Names cleared (' + t.length + ' encoders)');
+      // Reset to the encoder number (E1 … E16), not the CC, which may differ from the position.
+      const def = 'E' + (x.e + 1);
+      if (target !== 'abbr') enc.name = def;
+      if (target !== 'name') enc.abbr = def;
+    }), 'Names reset to E1 … E16 (' + t.length + ' encoders)');
   }
   function setWhite(t) {
     commit(() => t.forEach(x => { S.scene.pages[x.p].encoders[x.e].color = M.WHITE; }), 'Colors set to white (' + t.length + ' encoders)');
@@ -991,7 +1004,7 @@
       el('p', { class: 'muted' }, 'Placeholders: {n} {cc} {e} {p}'),
       el('span', { class: 'inl' },
         el('button', { class: 'btn primary', onclick: e => { e.preventDefault(); runName(); } }, 'Rename'),
-        el('button', { class: 'btn', title: 'Clear the names of the encoders in scope (Target applies)', onclick: e => { e.preventDefault(); clearNames(targets(), o.target); } }, 'Clear names')));
+        el('button', { class: 'btn', title: 'Reset the names of the encoders in scope to E1 … E16 by position (Target applies)', onclick: e => { e.preventDefault(); clearNames(targets(), o.target); } }, 'Reset names')));
   }
   function runName() {
     const o = bulkState.name;

@@ -47,6 +47,19 @@ Notes:
 - Firefox and Safari can't open local folders (no File System Access API). In Brave, enable it under `brave://flags/#file-system-access-api`. The editor shows these hints itself.
 - Close the OXI App while the editor talks to the E16. On Windows, only one program can use the MIDI port at a time.
 - On Linux the E16 works as a class-compliant USB-MIDI device via ALSA, no drivers or udev rules needed.
+- **Linux: sending to the E16 fails at "message 14 of 14"**: browsers send MIDI through the ALSA sequencer, whose output buffer is 4 KB by default. Every scene upload ends with a 9 KB script block; the kernel silently drops what doesn't fit (`journalctl -k` shows "seq_midi: MIDI output buffer overrun") and the E16 never answers. Increase the buffer, then reload the editor (if it still fails, unplug and replug the E16):
+
+  ```bash
+  sudo sh -c 'echo 32768 > /sys/module/snd_seq_midi/parameters/output_buffer_size'
+  ```
+
+  To keep the setting after a reboot:
+
+  ```bash
+  echo 'options snd-seq-midi output_buffer_size=32768' | sudo tee /etc/modprobe.d/snd-seq-midi.conf
+  ```
+
+  The editor shows this hint itself when the script block gets no reply on Linux. Reading scenes is not affected.
 - **Linux + Flatpak browser ("No E16 found")**: Brave or Chromium installed from Flathub can't see USB-MIDI devices by default. The OS sees the E16 (`lsusb`, `aconnect -l`), but Chromium needs `/run/udev` to list hardware MIDI ports, and the sandbox hides it. Allow read access, then fully quit and restart the browser:
 
   ```bash

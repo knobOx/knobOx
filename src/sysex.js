@@ -346,10 +346,19 @@
         return new Promise((resolve, reject) => {
           waiter = { resolve, timer: setTimeout(() => {
             waiter = null;
-            reject(new Error('No reply from the E16 (' + label + ', ' + msg.length + ' bytes, waited ' + (wait / 1000).toFixed(1) + ' s).'));
+            const err = new Error('No reply from the E16 (' + label + ', ' + msg.length + ' bytes, waited ' + (wait / 1000).toFixed(1) + ' s).');
+            err.timeout = true; err.size = msg.length;
+            reject(err);
           }, wait) };
           output.send(msg);
         });
+      },
+      /* Send msg and wait briefly for any reply, ignoring the outcome. */
+      async poke(msg) {
+        try { await new Promise((resolve, reject) => {
+          waiter = { resolve, timer: setTimeout(() => { waiter = null; reject(new Error('no reply')); }, 1500) };
+          output.send(msg);
+        }); } catch (e) { /* nothing to do */ }
       },
       close() { input.removeEventListener('midimessage', onMsg); },
     };
@@ -360,7 +369,14 @@
     try {
       await sess.open();
       for (let i = 0; i < msgs.length; i++) {
-        const reply = await sess.exchange(msgs[i], 'message ' + (i + 1) + ' of ' + msgs.length);
+        let reply;
+        try { reply = await sess.exchange(msgs[i], 'message ' + (i + 1) + ' of ' + msgs.length); }
+        catch (e) {
+          // A block that arrived incomplete (its end, including F7, was lost) leaves the E16 waiting for
+          // the rest; it would swallow the next transfer's first message. A short read request ends it.
+          if (e.timeout) await sess.poke(request(CMD_HEADER, msgs[0][8], 0));
+          throw e;
+        }
         if (!isAck(reply)) throw new Error('Unexpected reply: ' + hex(reply));
         if (onProgress) onProgress(i + 1, msgs.length);
       }

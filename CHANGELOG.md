@@ -7,12 +7,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-- "Clear names" and "All white" for the whole page (next to the page settings) and in bulk edit for the chosen scope. "All white" uses palette color 34.
+- "Reset names" (back to E1 … E16 by position) and "All white" (palette color 34) for the whole page (next to the page settings) and in bulk edit for the chosen scope.
 - Update check: on start (and when returning to the tab), knobOx compares its cached files with the server's and offers a reload when a newer version is available. Format info and README explain the browser cache and Ctrl+Shift+R.
 - Delete a scene file from the scene folder (✕ in the "On computer" list). If the scene is open in the editor, it stays open as unsaved.
 
 ### Fixed
 
+- Sending to the E16 on Linux: the 9 KB script block never got a reply because the ALSA sequencer's 4 KB MIDI output buffer drops the rest of it. The error now explains how to enlarge the buffer (README has the commands).
+- After such a failed block the E16 kept waiting for its end and swallowed the first message of the next transfer, so a following upload could look successful but store broken data. knobOx now ends the broken block right after the timeout.
 - Sending to the E16: the wait for the device's reply grows with the message size (about 12 s for the 8 KB script block instead of 3 s), and the error names the block size and wait time.
 - Paste no longer lands on encoder 1 when nothing is selected (e.g. after switching pages); it asks for a target instead. With several encoders selected, a single copied encoder fills all of them, and a different count is pasted starting at the encoder clicked last instead of the lowest one.
 

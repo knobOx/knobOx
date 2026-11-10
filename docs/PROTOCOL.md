@@ -55,6 +55,9 @@ u32 BE   CRC of body
 
 The device answers every message with the ACK `F0 00 21 5B 02 01 08 53 F7`. A full upload is: header (`cmd 00`), 12 pages (`cmd 01`, `idx` 0–11), script (`cmd 04`). It takes about 0.6 s.
 
+- The E16 only finishes a block at `F7`. If the end of a block is lost, it treats the next incoming message as the rest of that block and answers it with an ACK, even though the block is broken. The editor sends a short read request after a timeout so the next transfer starts cleanly.
+- **Linux/ALSA:** the sequencer's MIDI output buffer (`snd_seq_midi` parameter `output_buffer_size`) is 4096 bytes by default. The kernel drops whatever does not fit of a larger SysEx event ("seq_midi: MIDI output buffer overrun"), so the 9387-byte script block arrives incomplete. A buffer of at least 16 KB avoids this.
+
 | cmd | Body size | Wire size |
 |---|---|---|
 | `00` header | 80 bytes | 117 bytes |
