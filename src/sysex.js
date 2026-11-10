@@ -341,8 +341,13 @@
     return {
       async open() { await input.open(); await output.open(); },
       exchange(msg, label) {
+        // Large blocks (the 8 KB script block) take longer to transfer and store, so the wait grows with the size.
+        const wait = (timeoutMs || 3000) + msg.length;
         return new Promise((resolve, reject) => {
-          waiter = { resolve, timer: setTimeout(() => { waiter = null; reject(new Error('No reply from the E16 (' + label + ').')); }, timeoutMs || 3000) };
+          waiter = { resolve, timer: setTimeout(() => {
+            waiter = null;
+            reject(new Error('No reply from the E16 (' + label + ', ' + msg.length + ' bytes, waited ' + (wait / 1000).toFixed(1) + ' s).'));
+          }, wait) };
           output.send(msg);
         });
       },

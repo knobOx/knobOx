@@ -13,6 +13,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Sending to the E16: the wait for the device's reply grows with the message size (about 12 s for the 8 KB script block instead of 3 s), and the error names the block size and wait time.
 - Paste no longer lands on encoder 1 when nothing is selected (e.g. after switching pages); it asks for a target instead. With several encoders selected, a single copied encoder fills all of them, and a different count is pasted starting at the encoder clicked last instead of the lowest one.
 
 ### Changed
