@@ -47,7 +47,11 @@ Notes:
 - Firefox and Safari can't open local folders (no File System Access API). In Brave, enable it under `brave://flags/#file-system-access-api`. The editor shows these hints itself.
 - Close the OXI App while the editor talks to the E16. On Windows, only one program can use the MIDI port at a time.
 - On Linux the E16 works as a class-compliant USB-MIDI device via ALSA, no drivers or udev rules needed.
-- **Linux: sending to the E16 fails at "message 14 of 14"**: browsers send MIDI through the ALSA sequencer, whose output buffer is 4 KB by default. Every scene upload ends with a 9 KB script block; the kernel silently drops what doesn't fit (`journalctl -k` shows "seq_midi: MIDI output buffer overrun") and the E16 never answers. Increase the buffer, then reload the editor (if it still fails, unplug and replug the E16):
+- **Linux: the script block and the ALSA buffer**: browsers send MIDI through the ALSA sequencer, whose output buffer is 4 KB by default. Every scene upload ends with a script block that is always padded to 8 KB (9 KB on the wire), even when the scene has no script or only a short one. The kernel silently drops what doesn't fit (`journalctl -k` shows "seq_midi: MIDI output buffer overrun"), and the E16 never confirms that block. Settings and pages arrive fine, they come before it in smaller blocks.
+  - **Scenes without a script** still work: knobOx waits about 5 seconds, reads the scene back from the slot, and reports "Done" with a note when everything matches. Whether the E16 keeps an older script in that slot is not known.
+  - **Scenes with a script** can't be sent from a browser on Linux with the default buffer: the script arrives incomplete, and knobOx reports an error. The same applies to script editing, if it comes later.
+
+  Increase the buffer, then reload the editor (if it still fails, unplug and replug the E16):
 
   ```bash
   sudo sh -c 'echo 32768 > /sys/module/snd_seq_midi/parameters/output_buffer_size'
@@ -59,7 +63,7 @@ Notes:
   echo 'options snd-seq-midi output_buffer_size=32768' | sudo tee /etc/modprobe.d/snd-seq-midi.conf
   ```
 
-  The editor shows this hint itself when the script block gets no reply on Linux. Reading scenes is not affected.
+  With the larger buffer every upload, including scripts, is confirmed immediately. The editor shows this hint itself when the script block gets no reply on Linux. Reading scenes is not affected. Sending a `.syx` file with `amidi` works too, because `amidi` writes to the raw MIDI port, not through the sequencer (close the browser tab first, it holds the port).
 - **Linux + Flatpak browser ("No E16 found")**: Brave or Chromium installed from Flathub can't see USB-MIDI devices by default. The OS sees the E16 (`lsusb`, `aconnect -l`), but Chromium needs `/run/udev` to list hardware MIDI ports, and the sandbox hides it. Allow read access, then fully quit and restart the browser:
 
   ```bash
@@ -165,6 +169,7 @@ JSON: scene → `pages[12]` → `encoders[16]` → `turn_actions[2]` (Dest 1, De
 ## Ideas and contributions welcome
 
 - Reading Lua scripts back from the E16 (needs a USB capture of the OXI App doing it).
+- Shorter script blocks: the block header carries its own length, but the OXI App always pads the script to 8 KB. If the E16 also accepts a block that only holds the actual script, short scripts would fit into the default 4 KB ALSA buffer on Linux. Not tested yet.
 - A small command-line tool (e.g. Python + `python-rtmidi`, like the upload tool in OXI's SDK) to send, back up and list scenes without a browser: handy for headless Linux boxes or cron backups. The protocol is all in [docs/PROTOCOL.md](docs/PROTOCOL.md).
 - Script editing in the browser.
 - Support for more OXI devices.
