@@ -5,6 +5,27 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- Paste with a filter: checkboxes next to Paste choose which parts are pasted (Name, Abbr, Color, Dest 1, Dest 2, Push). The other parts of the target encoders stay as they are, e.g. to give cutoff encoders for different devices the same color. All checked pastes the whole encoder as before.
+- "Save as …" (Ctrl+Shift+S): save the scene under a new file name, into the scene folder or through the browser's save dialog.
+- Drag and drop for Pages: drag a Page onto another to swap them, Alt+drag (or Ctrl+drag) to copy it including name, channel and output.
+
+### Changed
+
+- Overwriting always asks first: "Save to computer" asks before writing back to the open file, and the send dialog asks before overwriting the chosen E16 slot. "Save to E16 …" always opens the send dialog; for a scene read from the E16 its own slot is preselected. After connecting, the send dialog reads the slot names from the E16 and shows them in the slot list, and its "Scene name" field renames the scene before sending (undoable).
+- Color input (encoder, bulk edit, scene): enter the palette number (0–99) directly or pick it from a 10×10 palette that opens from the swatch. Replaces the slider.
+- Encoder / Bulk edit panel: it starts level with the encoder grid, and the Encoder and Bulk edit tabs stay at the top of the panel while it scrolls. Its sections work as an accordion: clicking a section title opens it and closes the one open before, with a short transition. General and Scope stay open. The open section is remembered in the browser.
+- Bulk edit "Set up Push as CC": "Activate Off targets" as in Distribute CCs (on by default). Unchecked, Off pushes get their CC number and values but stay Off.
+- Bulk edit "Set up Push as CC": a hint under Offset / Start CC explains the result with an example (e.g. "Push CC = Dest 1 CC + 16, e.g. Dest 1 CC 3 → Push CC 19") and updates while typing.
+- Bulk edit "Set field": fields show the same names as the encoder editor (Accel Mode, Behavior, P.Val, …), and fields with known values (Type, Channel, Output, Accel Mode, Display, Behavior) are chosen from a dropdown instead of a number. Color uses the color input.
+- Swapping Pages (drag and drop or bulk edit): "Nav on swap" (next to the page settings and in bulk edit) sets what happens to Page navigation pushes. "Move with page" (default) swaps them with the rest of the page; pushes that lead to one of the two swapped pages get its new number. "Stay in place" pins them with their target to their page position: a push arriving at a pinned position is overwritten, a Nav push arriving at a free position is turned off. The message after the swap lists what was kept, overwritten, turned off or renumbered. The editor stays on the page that was moved.
+
+### Removed
+
+- "Reset names" and "All white" next to the page settings. Both remain in bulk edit (scope "Current Page" covers the whole page).
+- The `color2` field in the encoder editor and in bulk edit. The byte is still read from and written back to the device unchanged.
+
 ## [1.0.1] - 2026-11-10
 
 ### Added

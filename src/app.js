@@ -15,6 +15,8 @@
     redo: [],
     dirty: false,
     clip: null,
+    navMode: 'follow',    // page swap: 'follow' = nav pushes move with their page, targets remapped; 'stay' = nav pushes keep their position
+    pasteParts: { name: true, abbr: true, color: true, d1: true, d2: true, push: true },
     tab: 'pages',
     side: 'edit',
     ovChannel: null,
@@ -28,6 +30,7 @@
   };
   const UNDO_MAX = 200;
   const LS_SESSION = 'e16ed.session';
+  const LS_OPEN = 'e16ed.openSection';
   const LS_SETTINGS = 'e16ed.settings';
 
   function loadSettings() {
@@ -91,6 +94,27 @@
   function textEl(value, onchange, attrs) {
     return el('input', Object.assign({ type: 'text', value: value, onchange: e => onchange(e.target.value) }, attrs || {}));
   }
+  /* Color index 0..99: number input plus a swatch button that opens the 10x10 palette. */
+  function colorEl(value, onchange) {
+    const max = M.PALETTE.length - 1;
+    const sw = el('button', { type: 'button', class: 'swatch btnswatch', title: 'Choose from palette', style: { background: M.colorCss(value) } });
+    const num = el('input', { type: 'number', min: 0, max, value, class: 'w-num',
+      oninput: e => { sw.style.background = M.colorCss(parseInt(e.target.value, 10)); },
+      onchange: e => { const v = parseInt(e.target.value, 10); if (!Number.isNaN(v)) onchange(Math.max(0, Math.min(max, v))); } });
+    const pop = el('div', { class: 'cpop', hidden: true },
+      M.PALETTE.map((c, i) => el('button', { type: 'button', class: 'cpcell' + (i === value ? ' cur' : ''), title: String(i), style: { background: c },
+        onclick: e => { e.preventDefault(); pop.hidden = true; onchange(i); } })));
+    sw.addEventListener('click', e => {
+      e.preventDefault();
+      const open = pop.hidden;
+      document.querySelectorAll('.cpop').forEach(x => { x.hidden = true; });
+      pop.hidden = !open;
+    });
+    return el('span', { class: 'colorpick' }, num, sw, pop);
+  }
+  document.addEventListener('mousedown', e => {
+    if (!e.target.closest('.colorpick')) document.querySelectorAll('.cpop').forEach(x => { x.hidden = true; });
+  });
   function row(label, control, hint) {
     return el('label', { class: 'frow', title: hint || null }, el('span', { class: 'flabel' }, label), control);
   }
@@ -156,8 +180,23 @@
   function sendDialog() {
     const X = window.E16Sysex;
     const problems = X.checkScene(S.scene);
-    const slotSel = el('select', null, [...Array(16).keys()].map(i =>
-      el('option', { value: i + 1, selected: i + 1 === (S.settings.lastSlot || 1) }, 'Slot ' + (i + 1))));
+    const slotSel = el('select');
+    const slotLabel = i => 'Slot ' + (i + 1) + (S.lib.slots && S.lib.slots[i] ? ' – ' + S.lib.slots[i].title : '');
+    function fillSlots() {
+      const cur = slotSel.value ? Number(slotSel.value) : (S.source && S.source.kind === 'device' ? S.source.slot : (S.settings.lastSlot || 1));
+      slotSel.replaceChildren(...[...Array(16).keys()].map(i => el('option', { value: i + 1, selected: i + 1 === cur }, slotLabel(i))));
+    }
+    fillSlots();
+    const nameIn = el('input', { type: 'text', value: S.scene.title, maxlength: 7, class: 'w-name', title: 'Scene name shown on the E16 (up to 7 characters)' });
+    /* Read the slot names from the E16 once per connection, so the slot list shows what gets replaced. */
+    async function loadSlotNames() {
+      if (S.lib.slots || !S.midi || !S.midi.output || S.lib.busy) return;
+      S.lib.busy = true;
+      status.textContent = 'Reading slot names …';
+      try { S.lib.slots = await X.listScenes(S.midi); fillSlots(); status.textContent = 'Connected to "' + S.midi.output.name + '".'; }
+      catch (e) { status.textContent = 'Could not read the slot names: ' + transferError(e); }
+      finally { S.lib.busy = false; }
+    }
     const portSel = el('select', { disabled: true }, el('option', null, '– not connected yet –'));
     const status = el('p', { class: 'muted' }, problems.length ? problems.join(' ') : 'Ready. The OXI App must be closed.');
     const bar = el('progress', { max: 14, value: 0, class: 'sendbar' });
@@ -173,6 +212,7 @@
       portSel.disabled = !outs.length;
       btnGo.disabled = !best || problems.length > 0;
       status.textContent = best ? 'Connected to "' + best.name + '".' : notFoundMsg();
+      if (best) loadSlotNames();
     }
     btnConnect.addEventListener('click', async () => {
       try { await connectMidi(); } catch (e) { status.textContent = e.message; }
@@ -182,6 +222,11 @@
     btnGo.addEventListener('click', async () => {
       if (S.lib.busy) { status.textContent = 'The E16 is busy, please wait.'; return; }
       const slot = Number(slotSel.value);
+      const cur = S.lib.slots && S.lib.slots[slot - 1];
+      const title = nameIn.value.trim().slice(0, 7);
+      if (!title) { status.textContent = 'Enter a scene name.'; return; }
+      if (!confirm('Overwrite slot ' + slot + (cur ? ' ("' + cur.title + '")' : '') + ' on the E16 with "' + title + '"?')) return;
+      if (title !== S.scene.title) commit(() => { S.scene.title = title; }, 'Scene renamed to "' + title + '"');
       S.settings.lastSlot = slot; saveSettings();
       const access = S.midi.access;
       const output = access.outputs.get(portSel.value);
@@ -198,6 +243,8 @@
         bar.value = bar.max;
         status.textContent = 'Done: "' + S.scene.title + '" is now in slot ' + slot + '.' + (res.scriptBlockFailed ? ' ' + scriptBlockNote() : '');
         toast('Sent to E16 (slot ' + slot + ')' + (res.scriptBlockFailed ? ', checked by reading it back' : ''));
+        if (S.lib.slots) { S.lib.slots[slot - 1] = { slot, title: S.scene.title, color: S.scene.color, scriptName: (S.scene.code || {}).scriptName || '' }; fillSlots(); }
+        if (S.source && S.source.kind === 'device' && S.source.slot === slot) markSaved();
       } catch (e) {
         status.textContent = 'Error: ' + transferError(e);
       } finally {
@@ -214,6 +261,7 @@
       el('h2', null, 'Send to E16'),
       el('p', null, 'Transfers the scene over USB-MIDI, like the OXI App. The selected slot is overwritten.'),
       row('Slot', slotSel),
+      row('Scene name', nameIn, 'Renames the scene before sending'),
       row('MIDI port', portSel),
       el('div', { class: 'inl' }, btnConnect, btnGo, btnSyx),
       bar, status,
@@ -231,6 +279,7 @@
     if (!S.scene) return;
     const text = JSON.stringify(S.scene);
     if (S.fileHandle) {
+      if (!confirm('Overwrite ' + S.fileName + ' with the scene in the editor?\n\nUse "Save as …" to save it under a different name.')) return;
       try {
         await L().write(S.fileHandle, text);
         markSaved(); toast('Saved ' + S.fileName); refreshFolder();
@@ -250,14 +299,48 @@
     markSaved(); toast('Downloaded ' + S.fileName);
   }
 
-  /* Save to E16: back to the slot it was read from, otherwise ask for a slot. */
-  async function saveDevice() {
+  /*
+   * Save as: ask for a file name. With a scene folder the file goes there (asking before overwriting an
+   * existing file); otherwise the browser's save dialog is used where available, else a download.
+   */
+  async function saveAs() {
     if (!S.scene) return;
-    if (S.source && S.source.kind === 'device') {
-      const ok = await sendToSlot(S.scene, S.source.slot, S.scene.title);
-      if (ok) markSaved();
+    let name = prompt('Save as (file name):', S.fileName || L().fileNameFor(S.scene.title));
+    if (name === null) return;
+    name = name.trim().replace(/[\\/:*?"<>|]/g, '_');
+    if (!name) return toast('No file name given', true);
+    if (!/\.oxie16$/i.test(name)) name += '.oxie16';
+    const text = JSON.stringify(S.scene);
+    const scriptMissing = S.source && S.source.scriptMissing;
+    if (S.lib.dir) {
+      let res;
+      try { res = await saveToFolder(S.scene, name, scriptMissing, 'the scene in the editor'); }
+      catch (e) { toast('Could not write ' + name + ': ' + e.message + (onLinux() ? ' ' + FOLDER_FLATPAK : ''), true); return; }
+      if (!res) return;
+      S.fileHandle = res.handle; S.fileName = name;
+      S.source = Object.assign({}, S.source, { kind: 'folder', savedTo: name });
+      markSaved(); toast('Saved as ' + name + res.note, !!res.warn); refreshFolder();
       return;
     }
+    if (window.showSaveFilePicker) {
+      try {
+        // The browser's own dialog asks before replacing an existing file.
+        const handle = await window.showSaveFilePicker({ suggestedName: name, types: [{ description: 'OXI E16 scene', accept: { 'application/json': ['.oxie16'] } }] });
+        await L().write(handle, text);
+        S.fileHandle = handle; S.fileName = handle.name;
+        S.source = Object.assign({}, S.source, { kind: 'folder', savedTo: handle.name });
+        markSaved(); toast('Saved as ' + handle.name);
+      } catch (e) { if (e.name !== 'AbortError') toast('Could not save: ' + e.message, true); }
+      return;
+    }
+    downloadText(name, text);
+    S.fileName = name;
+    markSaved(); toast('Downloaded ' + name);
+  }
+
+  /* Save to E16: choose the slot in the send dialog; a scene read from the E16 starts on its own slot. */
+  function saveDevice() {
+    if (!S.scene) return;
     sendDialog();
   }
 
@@ -669,10 +752,12 @@
     $('#btnSaveLocal').disabled = !has;
     $('#btnSaveLocal').title = S.fileHandle ? 'Save to ' + S.fileName + ' (Ctrl+S)'
       : S.lib.dir ? 'Save into the scene folder (Ctrl+S)' : 'Download as .oxie16 (Ctrl+S)';
+    $('#btnSaveAs').disabled = !has;
+    $('#btnSaveAs').title = (S.lib.dir ? 'Save into the scene folder under a new name' : 'Save under a new name') + ' (Ctrl+Shift+S)';
     $('#btnSaveDevice').disabled = !has || !!src.scriptMissing;
-    $('#btnSaveDevice').textContent = src.kind === 'device' ? 'Save to E16 slot ' + src.slot : 'Save to E16 …';
+    $('#btnSaveDevice').textContent = 'Save to E16 …';
     $('#btnSaveDevice').title = src.scriptMissing ? 'Disabled: the script of this scene could not be read from the E16'
-      : src.kind === 'device' ? 'Write the scene back to slot ' + src.slot : 'Choose a slot and send the scene to the E16';
+      : src.kind === 'device' ? 'Choose a slot (slot ' + src.slot + ' preselected) and send the scene to the E16' : 'Choose a slot and send the scene to the E16';
     $('#btnClose').disabled = !has;
     $('#btnLibrary').textContent = S.view === 'library' && S.scene ? 'Back to editor' : 'Library';
     $('#btnUndo').disabled = !S.undo.length;
@@ -687,7 +772,18 @@
       el('button', {
         class: 'pagebtn' + (i === S.page ? ' active' : ''),
         onclick: () => { S.page = i; S.sel = new Set(); S.anchor = null; render(); },
-        title: 'Channel ' + M.pageChannel(p, S.settings),
+        title: 'Channel ' + M.pageChannel(p, S.settings) + '\nDrag onto another Page to swap, with Alt or Ctrl to copy',
+        draggable: 'true',
+        ondragstart: ev => { ev.dataTransfer.setData('text/x-e16-page', String(i)); ev.dataTransfer.effectAllowed = 'copyMove'; },
+        ondragover: ev => { if (ev.dataTransfer.types.includes('text/x-e16-page')) { ev.preventDefault(); ev.currentTarget.classList.add('dropping'); } },
+        ondragleave: ev => ev.currentTarget.classList.remove('dropping'),
+        ondrop: ev => {
+          ev.preventDefault();
+          const from = parseInt(ev.dataTransfer.getData('text/x-e16-page'), 10);
+          if (Number.isNaN(from) || from === i) return render();
+          if (ev.altKey || ev.ctrlKey) copyPage(from, i, true);
+          else swapPages(from, i, true);
+        },
       }, el('span', { class: 'pnum' }, 'P' + (i + 1)), el('span', { class: 'ptitle' }, p.title))));
   }
 
@@ -700,12 +796,16 @@
       row('Channel', selectEl(chOpts, M.pageChannel(p, S.settings), v => commit(() => M.setPageChannel(p, v, S.settings)))),
       row('Output', selectEl(M.PAGE_OUTPUTS, p.output, v => commit(() => { p.output = v; })),
         'Other values not decoded yet'),
-      el('span', { class: 'inl' },
-        el('button', { class: 'btn small', title: 'Reset name and abbreviation of all 16 encoders on this page to E1 … E16', onclick: () => clearNames(pageTargets(), 'both') }, 'Reset names'),
-        el('button', { class: 'btn small', title: 'Set the color of all 16 encoders on this page to white', onclick: () => setWhite(pageTargets()) }, 'All white')),
+      row('Nav on swap', navModeEl(), NAV_MODE_HINT),
     );
   }
-  const pageTargets = () => curPage().encoders.map((_, e) => ({ p: S.page, e }));
+  const NAV_MODE_HINT = 'What happens to "Nav → P…" pushes when two Pages are swapped (drag and drop or bulk edit).\n'
+    + 'Move with page: they are swapped with the rest of the page. A push that leads to one of the two swapped pages gets that page\'s new number.\n'
+    + 'Stay in place: they are pinned to their page position with their target. A push arriving there is overwritten, a Nav push arriving elsewhere is turned off.';
+  function navModeEl() {
+    return selectEl({ 0: { label: 'Move with page', sure: true }, 1: { label: 'Stay in place', sure: true } },
+      S.navMode === 'stay' ? 1 : 0, v => { S.navMode = v ? 'stay' : 'follow'; render(); });
+  }
   function clearNames(t, target) {
     commit(() => t.forEach(x => {
       const enc = S.scene.pages[x.p].encoders[x.e];
@@ -756,6 +856,19 @@
     });
     grid.replaceChildren(...cells);
     $('#clipInfo').textContent = S.clip ? S.clip.length + ' encoder(s) on the clipboard' : '';
+    renderPasteParts();
+  }
+
+  function renderPasteParts() {
+    const pp = S.pasteParts;
+    let box = $('#pasteParts');
+    if (!box) {
+      box = el('span', { class: 'pasteparts', id: 'pasteParts' });
+      $('#btnPaste').after(box);
+    }
+    box.replaceChildren(el('span', { class: 'hint' }, 'Paste:'),
+      ...PASTE_PARTS.map(([k, label]) => el('label', { class: 'chk', title: 'Include ' + label + ' when pasting' },
+        el('input', { type: 'checkbox', checked: pp[k], onchange: e => { pp[k] = e.target.checked; } }), label)));
   }
 
   function clickEnc(i, ev) {
@@ -778,6 +891,52 @@
     $('#side-edit').hidden = S.side !== 'edit';
     $('#side-bulk').hidden = S.side !== 'bulk';
     if (S.side === 'edit') renderEditor(); else renderBulk();
+    makeAccordion($('#side-' + S.side), S.side);
+  }
+
+  /*
+   * Side pane sections as an accordion: clicking a section title opens it and closes the one open before;
+   * clicking the open one closes it. General and Scope stay open. The open section per pane is remembered.
+   */
+  const ACC_PINNED = ['General', 'Scope'];
+  const ACC_DEFAULT = { edit: 'Dest 1', bulk: 'Distribute CCs' };
+  let openSection;
+  try { openSection = Object.assign({}, ACC_DEFAULT, JSON.parse(localStorage.getItem(LS_OPEN) || '{}')); } catch (e) { openSection = Object.assign({}, ACC_DEFAULT); }
+  function makeAccordion(pane, prefix) {
+    const sections = [];
+    pane.querySelectorAll(':scope > fieldset').forEach(fs => {
+      const lg = fs.querySelector(':scope > legend');
+      if (!lg) return;
+      // Legends can carry a status suffix, e.g. "Dest 2 (inactive, ...)".
+      const key = lg.textContent.split(' (')[0];
+      if (ACC_PINNED.includes(key)) return;
+      const inner = el('div', { class: 'accinner' });
+      [...fs.childNodes].filter(n => n !== lg).forEach(n => inner.append(n));
+      fs.append(el('div', { class: 'accbody' }, inner));
+      fs.classList.add('acc');
+      const isOpen = openSection[prefix] === key;
+      fs.classList.toggle('open', isOpen);
+      fs.classList.toggle('settled', isOpen);
+      sections.push({ fs, key });
+      lg.addEventListener('click', () => {
+        const opening = !fs.classList.contains('open');
+        sections.forEach(x => x.fs.classList.remove('open', 'settled'));
+        openSection[prefix] = opening ? key : null;
+        try { localStorage.setItem(LS_OPEN, JSON.stringify(openSection)); } catch (e) { /* storage unavailable */ }
+        if (!opening) return;
+        fs.classList.add('open');
+        const body = fs.querySelector(':scope > .accbody');
+        const done = () => {
+          body.removeEventListener('transitionend', done);
+          if (!fs.classList.contains('open')) return;
+          fs.classList.add('settled');
+          fs.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        };
+        body.addEventListener('transitionend', done);
+        // Fallback when no transition runs (reduced motion).
+        setTimeout(done, 400);
+      });
+    });
   }
 
   // ---------- single encoder editor ----------
@@ -798,12 +957,7 @@
     const general = el('fieldset', null, el('legend', null, 'General'),
       row('Name', textEl(enc.name, v => commit(() => { enc.name = v.slice(0, 4); }), { maxlength: 4, class: 'w-name' })),
       row('Abbr', textEl(enc.abbr, v => commit(() => { enc.abbr = v.slice(0, 4); }), { maxlength: 4, class: 'w-name' })),
-      row('Color', el('span', { class: 'colorpick' },
-        el('input', { type: 'range', min: 0, max: 100, value: enc.color, onchange: e => commit(() => { enc.color = Number(e.target.value); }),
-          oninput: e => { e.target.nextSibling.style.background = M.colorCss(Number(e.target.value)); e.target.nextSibling.nextSibling.textContent = e.target.value; } }),
-        el('span', { class: 'swatch', style: { background: M.colorCss(enc.color) } }),
-        el('span', { class: 'cval' }, enc.color))),
-      row('color2', numEl(enc.color2, v => commit(() => { enc.color2 = v; }), { min: 0, max: 100, class: 'w-num' }), 'Second color (swap), raw value'),
+      row('Color', colorEl(enc.color, v => commit(() => { enc.color = v; }))),
       extraKeys(enc, ['name', 'abbr', 'color', 'color2', 'push_action', 'turn_actions']),
     );
 
@@ -858,7 +1012,7 @@
   // ---------- bulk tools ----------
   const bulkState = {
     cc: { role: 'd1', start: 1, step: 1, skipUsed: false, setTypeIfOff: true, keepOther: true, channel: 'keep' },
-    push: { source: 'offset', offset: 16, start: 1, mode: 0, pval: 127, rval: 0, copyChannel: true, keepOther: true },
+    push: { source: 'offset', offset: 16, start: 1, mode: 0, pval: 127, rval: 0, copyChannel: true, setTypeIfOff: true, keepOther: true },
     field: { role: 'd1', key: 'type', value: 3 },
     name: { pattern: 'CC{cc}', start: 1, target: 'both' },
     color: { mode: 'fixed', a: 0, b: 90 },
@@ -866,7 +1020,7 @@
   };
 
   const FIELD_KEYS = {
-    enc: ['color', 'color2'],
+    enc: ['color'],
     d1: ['type', 'channel', 'output', 'nr2', 'lower', 'upper', 'defaultValue', 'mode', 'display', 'instrument'],
     d2: ['type', 'channel', 'output', 'nr2', 'lower', 'upper', 'defaultValue', 'mode', 'display', 'instrument'],
     push: ['type', 'channel', 'output', 'mode', 'nr2', 'lower', 'upper', 'scriptId'],
@@ -924,23 +1078,36 @@
 
   function bulkPush() {
     const o = bulkState.push;
+    const hintText = v => o.source === 'offset'
+      ? (() => {
+        // Example base chosen so that negative offsets give a valid result too.
+        const base = v < 0 ? Math.min(127, 1 - v) : 3, res = base + v;
+        return 'Push CC = Dest 1 CC ' + (v < 0 ? '− ' + -v : '+ ' + v) + ', e.g. Dest 1 CC ' + base + ' → Push CC '
+          + (res >= 0 && res <= 127 ? res : res + ' (out of range, skipped)') + '. Encoders without a Dest 1 CC or outside 0–127 are skipped.';
+      })()
+      : 'Push CCs ' + v + ', ' + (v + 1) + ', ' + (v + 2) + ' … in the order chosen under Scope.';
+    const hint = el('p', { class: 'muted' }, hintText(o.source === 'offset' ? o.offset : o.start));
+    const live = () => e => { const v = parseInt(e.target.value, 10); if (!Number.isNaN(v)) hint.textContent = hintText(v); };
     return el('fieldset', null, el('legend', null, 'Set up Push as CC'),
       row('CC number', selectEl({ 0: { label: 'Dest 1 CC + offset', sure: true }, 1: { label: 'Sequential from', sure: true } },
         o.source === 'offset' ? 0 : 1, v => { o.source = v ? 'seq' : 'offset'; render(); })),
       o.source === 'offset'
-        ? row('Offset', numEl(o.offset, v => { o.offset = v; }, { min: -127, max: 127, class: 'w-num' }))
-        : row('Start CC', numEl(o.start, v => { o.start = v; }, { min: 0, max: 127, class: 'w-num' })),
+        ? row('Offset', numEl(o.offset, v => { o.offset = v; }, { min: -127, max: 127, class: 'w-num', oninput: live() }))
+        : row('Start CC', numEl(o.start, v => { o.start = v; }, { min: 0, max: 127, class: 'w-num', oninput: live() })),
+      hint,
       row('Behavior', selectEl(M.PUSH_MODES, o.mode, v => { o.mode = v; })),
       row('P.Val', numEl(o.pval, v => { o.pval = v; }, { min: 0, max: 127, class: 'w-num' })),
       row('R.Val', numEl(o.rval, v => { o.rval = v; }, { min: 0, max: 127, class: 'w-num' })),
       row('Channel from Dest 1', el('input', { type: 'checkbox', checked: o.copyChannel, onchange: e => { o.copyChannel = e.target.checked; } })),
+      row('Activate Off targets', el('input', { type: 'checkbox', checked: o.setTypeIfOff, onchange: e => { o.setTypeIfOff = e.target.checked; } }),
+        'Changes Push type Off to CC. Unchecked, Off pushes get their CC number and values but stay Off.'),
       row('Keep navigation & other functions', el('input', { type: 'checkbox', checked: o.keepOther, onchange: e => { o.keepOther = e.target.checked; } }),
         'Only Push actions that are Off or already CC are changed; Page navigation, Set to Default, Script etc. stay as they are.'),
       el('button', { class: 'btn primary', onclick: e => { e.preventDefault(); runPush(); } }, 'Apply'));
   }
   function runPush() {
     const o = bulkState.push;
-    let n = 0, skipped = 0, kept = 0, cc = o.start;
+    let n = 0, skipped = 0, kept = 0, leftOff = 0, cc = o.start;
     commit(() => {
       for (const t of targets()) {
         const enc = S.scene.pages[t.p].encoders[t.e];
@@ -953,12 +1120,14 @@
           num = d1.nr1 + o.offset;
         } else num = cc++;
         if (num < 0 || num > 127) { skipped++; continue; }
-        pa.type = 2; pa.nr1 = num; pa.mode = o.mode; pa.lower = o.pval; pa.upper = o.rval;
+        if (pa.type !== 0 || o.setTypeIfOff) pa.type = 2;
+        else leftOff++;
+        pa.nr1 = num; pa.mode = o.mode; pa.lower = o.pval; pa.upper = o.rval;
         if (o.copyChannel) pa.channel = d1.channel;
         n++;
       }
     });
-    toast(n + ' Push actions set' + (kept ? ', ' + kept + ' kept (navigation or other function)' : '') +
+    toast(n + ' Push actions set' + (leftOff ? ' (' + leftOff + ' left Off)' : '') + (kept ? ', ' + kept + ' kept (navigation or other function)' : '') +
       (skipped ? ', ' + skipped + ' skipped' : ''), skipped > 0);
   }
 
@@ -968,27 +1137,29 @@
     const rKeys = ['enc', 'd1', 'd2', 'push'];
     const keys = FIELD_KEYS[o.role];
     if (!keys.includes(o.key)) o.key = keys[0];
+    const defs = fieldDefs(o.role);
     const kOpts = {};
-    keys.forEach((k, i) => { kOpts[i] = { label: k, sure: true }; });
+    keys.forEach((k, i) => { kOpts[i] = { label: defs[k] ? defs[k].label : k, sure: true }; });
+    const def = defs[o.key];
     let valCtl;
-    if (o.key === 'type' && o.role !== 'enc') {
-      const tbl = M.typeTable(o.role);
-      if (!(o.value in tbl)) o.value = 0;
-      valCtl = selectEl(tbl, o.value, v => { o.value = v; });
-    } else if (o.key === 'mode' && o.role === 'push') {
-      if (!(o.value in M.PUSH_MODES)) o.value = 0;
-      valCtl = selectEl(M.PUSH_MODES, o.value, v => { o.value = v; });
-    } else if (o.key === 'channel') {
-      const t = { 0: { label: 'Page', sure: true } };
-      for (let i = 1; i <= 16; i++) t[i] = { label: String(i), sure: true };
-      if (!(o.value in t)) o.value = 0;
-      valCtl = selectEl(t, o.value, v => { o.value = v; });
-    } else valCtl = numEl(o.value, v => { o.value = v; }, { class: 'w-num' });
+    if (o.role === 'enc' && o.key === 'color') valCtl = colorEl(o.value, v => { o.value = v; });
+    else if (def && def.kind === 'select') {
+      if (!(o.value in def.options)) o.value = Number(Object.keys(def.options)[0]);
+      valCtl = selectEl(def.options, o.value, v => { o.value = v; });
+    } else valCtl = numEl(o.value, v => { o.value = v; }, { class: 'w-num', min: def && def.min, max: def && def.max });
     return el('fieldset', null, el('legend', null, 'Set field'),
       row('Section', selectEl(rOpts, rKeys.indexOf(o.role), v => { o.role = rKeys[v]; render(); })),
       row('Field', selectEl(kOpts, keys.indexOf(o.key), v => { o.key = keys[v]; render(); })),
       row('Value', valCtl),
       el('button', { class: 'btn primary', onclick: e => { e.preventDefault(); runField(); } }, 'Set'));
+  }
+  /* Field definitions (label, kind, options) per key for a bulk section, taken from the encoder editor's fields. */
+  function fieldDefs(role) {
+    if (role === 'enc') return { color: { label: 'Color', kind: 'color' } };
+    const sample = { type: role === 'push' ? 2 : 3 };
+    const out = {};
+    M.actionFields(role, sample, S.scene.pages).forEach(f => { out[f.key] = f; });
+    return out;
   }
   function runField() {
     const o = bulkState.field;
@@ -1000,7 +1171,9 @@
         if (obj && o.key in obj) { obj[o.key] = o.value; n++; }
       }
     });
-    toast(o.key + ' = ' + o.value + ' on ' + n + ' encoders');
+    const def = fieldDefs(o.role)[o.key];
+    const shown = def && def.kind === 'select' && def.options[o.value] ? def.options[o.value].label : o.value;
+    toast((def ? def.label : o.key) + ' = ' + shown + ' on ' + n + ' encoders');
   }
 
   function bulkName() {
@@ -1034,12 +1207,11 @@
 
   function bulkColor() {
     const o = bulkState.color;
-    const sw = v => el('span', { class: 'swatch', style: { background: M.colorCss(v) } });
     return el('fieldset', null, el('legend', null, 'Color'),
       row('Mode', selectEl({ 0: { label: 'Fixed', sure: true }, 1: { label: 'Gradient', sure: true } }, o.mode === 'fixed' ? 0 : 1,
         v => { o.mode = v ? 'grad' : 'fixed'; render(); })),
-      row(o.mode === 'fixed' ? 'Color' : 'From', el('span', { class: 'inl' }, numEl(o.a, v => { o.a = v; render(); }, { min: 0, max: 100, class: 'w-num' }), sw(o.a))),
-      o.mode === 'grad' ? row('To', el('span', { class: 'inl' }, numEl(o.b, v => { o.b = v; render(); }, { min: 0, max: 100, class: 'w-num' }), sw(o.b))) : null,
+      row(o.mode === 'fixed' ? 'Color' : 'From', colorEl(o.a, v => { o.a = v; render(); })),
+      o.mode === 'grad' ? row('To', colorEl(o.b, v => { o.b = v; render(); })) : null,
       el('span', { class: 'inl' },
         el('button', { class: 'btn primary', onclick: e => { e.preventDefault(); runColor(); } }, 'Apply color'),
         el('button', { class: 'btn', title: 'Set the encoders in scope to white (color ' + M.WHITE + ')', onclick: e => { e.preventDefault(); setWhite(targets()); } }, 'All white')));
@@ -1050,7 +1222,7 @@
     commit(() => {
       t.forEach((x, k) => {
         const v = o.mode === 'fixed' || t.length < 2 ? o.a : Math.round(o.a + (o.b - o.a) * k / (t.length - 1));
-        S.scene.pages[x.p].encoders[x.e].color = Math.max(0, Math.min(100, v));
+        S.scene.pages[x.p].encoders[x.e].color = Math.max(0, Math.min(M.PALETTE.length - 1, v));
       });
     }, 'Colors set');
   }
@@ -1059,7 +1231,8 @@
     const o = bulkState.page;
     return el('fieldset', null, el('legend', null, 'Copy / swap Page'),
       row('Target page', selectEl(pageNums, o.target, v => { o.target = v; })),
-      row('Include name/channel/output', el('input', { type: 'checkbox', checked: o.withSettings, onchange: e => { o.withSettings = e.target.checked; } })),
+      row('Include name/channel/output', el('input', { type: 'checkbox', checked: o.withSettings, onchange: e => { o.withSettings = e.target.checked; render(); } })),
+      row('Nav on swap', navModeEl(), NAV_MODE_HINT),
       el('div', { class: 'inl' },
         el('button', { class: 'btn', onclick: e => { e.preventDefault(); runPage(false); } }, 'Copy Page ' + (S.page + 1) + ' to target'),
         el('button', { class: 'btn', onclick: e => { e.preventDefault(); runPage(true); } }, 'Swap')));
@@ -1068,20 +1241,92 @@
     const o = bulkState.page;
     const ti = o.target - 1;
     if (ti === S.page) return toast('Target is the current Page', true);
+    if (swap) swapPages(S.page, ti, o.withSettings);
+    else copyPage(S.page, ti, o.withSettings);
+  }
+
+  /*
+   * Swaps two pages, with settings as whole pages, otherwise only their encoders.
+   * Page navigation pushes (type 6, nr2 = page index) depend on S.navMode:
+   *   'follow': they move with their page; with settings, pushes leading to one of the two pages get its new number.
+   *   'stay':   they are pinned to their page position. A push arriving at a pinned position is overwritten,
+   *             a Nav push arriving at a free position is turned off.
+   * The current page follows the moved page.
+   */
+  function swapPages(a, b, withSettings) {
+    const isNav = x => !!x && x.type === 6;
+    const pages0 = S.scene.pages;
+    const pinned = { [a]: pages0[a].encoders.map(enc => isNav(enc.push_action) ? enc.push_action : null),
+                     [b]: pages0[b].encoders.map(enc => isNav(enc.push_action) ? enc.push_action : null) };
+    let kept = 0, overwritten = 0, cleared = 0, renumbered = 0;
+    if (S.navMode !== 'stay' && withSettings) {
+      pages0.forEach(p => p.encoders.forEach(enc => { if (isNav(enc.push_action) && [a, b].includes(enc.push_action.nr2)) renumbered++; }));
+    }
+    if (S.navMode === 'stay') {
+      // Each page's pushes arrive at the other page's positions.
+      [[a, b], [b, a]].forEach(([to, from]) => pages0[from].encoders.forEach((enc, e) => {
+        const arriving = enc.push_action;
+        if (pinned[to][e]) {
+          kept++;
+          if (arriving && arriving.type !== 0 && !isNav(arriving)) overwritten++;
+        } else if (isNav(arriving)) cleared++;
+      }));
+    }
     commit(() => {
       const pages = S.scene.pages;
-      const src = pages[S.page], dst = pages[ti];
-      if (swap) {
-        if (o.withSettings) [pages[S.page], pages[ti]] = [dst, src];
-        else [src.encoders, dst.encoders] = [dst.encoders, src.encoders];
-      } else {
-        dst.encoders = M.deepClone(src.encoders);
-        if (o.withSettings) Object.keys(src).forEach(k => { if (k !== 'encoders') dst[k] = M.deepClone(src[k]); });
+      if (withSettings) [pages[a], pages[b]] = [pages[b], pages[a]];
+      else [pages[a].encoders, pages[b].encoders] = [pages[b].encoders, pages[a].encoders];
+      if (S.navMode === 'stay') {
+        [a, b].forEach(idx => pages[idx].encoders.forEach((enc, e) => {
+          if (pinned[idx][e]) enc.push_action = pinned[idx][e];
+          else if (isNav(enc.push_action)) enc.push_action = Object.assign({}, enc.push_action, { type: 0 });
+        }));
+      } else if (withSettings) {
+        pages.forEach(p => p.encoders.forEach(enc => {
+          const pa = enc.push_action;
+          if (!isNav(pa)) return;
+          if (pa.nr2 === a) pa.nr2 = b;
+          else if (pa.nr2 === b) pa.nr2 = a;
+        }));
       }
-    }, swap ? 'Pages swapped' : 'Page copied');
+    }, 'Pages ' + (a + 1) + ' and ' + (b + 1) + ' swapped'
+      + (kept ? ', ' + kept + ' Nav push(es) kept in place' : '')
+      + (overwritten ? ', ' + overwritten + ' push(es) overwritten' : '')
+      + (cleared ? ', ' + cleared + ' Nav push(es) turned off' : '')
+      + (renumbered ? ', ' + renumbered + ' Nav target(s) renumbered' : ''));
+    if (S.page === a) S.page = b;
+    else if (S.page === b) S.page = a;
+    S.sel = new Set(); S.anchor = null;
+    render();
+  }
+
+  /* Copies page a onto page b (encoders, with settings also name, channel and output). */
+  function copyPage(a, b, withSettings) {
+    commit(() => {
+      const src = S.scene.pages[a], dst = S.scene.pages[b];
+      dst.encoders = M.deepClone(src.encoders);
+      if (withSettings) Object.keys(src).forEach(k => { if (k !== 'encoders') dst[k] = M.deepClone(src[k]); });
+    }, 'Page ' + (a + 1) + ' copied to Page ' + (b + 1));
   }
 
   // ---------- clipboard ----------
+  const PASTE_PARTS = [['name', 'Name'], ['abbr', 'Abbr'], ['color', 'Color'], ['d1', 'Dest 1'], ['d2', 'Dest 2'], ['push', 'Push']];
+
+  /* Applies the parts of src chosen in S.pasteParts to dst. With every part chosen, dst becomes a full copy of src. */
+  function pasteInto(dst, src) {
+    const pp = S.pasteParts;
+    if (PASTE_PARTS.every(([k]) => pp[k])) return M.deepClone(src);
+    const out = M.deepClone(dst);
+    ['name', 'abbr', 'color'].forEach(k => { if (pp[k]) out[k] = src[k]; });
+    if (pp.push) out.push_action = M.deepClone(src.push_action);
+    if (pp.d1 || pp.d2) {
+      out.turn_actions = (out.turn_actions || []).slice();
+      if (pp.d1) out.turn_actions[0] = M.deepClone((src.turn_actions || [])[0]);
+      if (pp.d2) out.turn_actions[1] = M.deepClone((src.turn_actions || [])[1]);
+    }
+    return out;
+  }
+
   function copySel() {
     const sel = selected();
     if (!sel.length) return toast('Nothing selected', true);
@@ -1093,6 +1338,9 @@
     if (!S.clip) return toast('Clipboard is empty', true);
     const sel = selected();
     if (!sel.length) return toast('Select the encoder to paste into first', true);
+    const parts = PASTE_PARTS.filter(([k]) => S.pasteParts[k]).map(([, label]) => label);
+    if (!parts.length) return toast('Choose at least one part to paste', true);
+    const partial = parts.length < PASTE_PARTS.length;
     const one = S.clip.length === 1;
     let dest;
     if (one || sel.length === S.clip.length) {
@@ -1104,8 +1352,9 @@
       dest = S.clip.map((_, k) => start + k).filter(i => i < curPage().encoders.length);
     }
     const cut = one ? 0 : S.clip.length - dest.length;
-    commit(() => { dest.forEach((d, k) => { curPage().encoders[d] = M.deepClone(S.clip[one ? 0 : k]); }); },
-      dest.length + ' encoder(s) pasted' + (cut ? ', ' + cut + ' did not fit on the page' : ''));
+    const encs = curPage().encoders;
+    commit(() => { dest.forEach((d, k) => { encs[d] = pasteInto(encs[d], S.clip[one ? 0 : k]); }); },
+      dest.length + ' encoder(s) pasted' + (partial ? ' (' + parts.join(', ') + ')' : '') + (cut ? ', ' + cut + ' did not fit on the page' : ''));
     S.sel = new Set(dest); render();
   }
 
@@ -1182,8 +1431,7 @@
     const known = ['title', 'icon', 'color', 'pages', 'code'];
     const general = el('fieldset', null, el('legend', null, 'Scene'),
       row('Name', textEl(s.title, v => commit(() => { s.title = v.slice(0, 7); }), { maxlength: 7, class: 'w-name' })),
-      row('Color', el('span', { class: 'inl' }, numEl(s.color, v => commit(() => { s.color = v; }), { min: 0, max: 100, class: 'w-num' }),
-        el('span', { class: 'swatch', style: { background: M.colorCss(s.color) } }))),
+      row('Color', colorEl(s.color, v => commit(() => { s.color = v; }))),
     );
     const raw = el('fieldset', null, el('legend', null, 'Other scene fields (raw values)'),
       el('p', { class: 'muted' }, 'Meaning inferred from field names. The value encoding is partly undocumented.'),
@@ -1284,6 +1532,8 @@
     $('#libRefresh').addEventListener('click', refreshFolder);
     $('#libConnect').addEventListener('click', listSlots);
     $('#btnSaveLocal').addEventListener('click', saveLocal);
+    if (!$('#btnSaveAs')) $('#btnSaveLocal').after(el('button', { class: 'btn', id: 'btnSaveAs', disabled: true }, 'Save as …'));
+    $('#btnSaveAs').addEventListener('click', saveAs);
     $('#btnSaveDevice').addEventListener('click', saveDevice);
     $('#btnClose').addEventListener('click', closeScene);
     $('#btnUndo').addEventListener('click', undo);
@@ -1315,7 +1565,7 @@
       const k = e.key.toLowerCase();
       if (k === 'z' && !inField) { e.preventDefault(); e.shiftKey ? redo() : undo(); }
       else if (k === 'y' && !inField) { e.preventDefault(); redo(); }
-      else if (k === 's') { e.preventDefault(); saveLocal(); }
+      else if (k === 's') { e.preventDefault(); e.shiftKey ? saveAs() : saveLocal(); }
       else if (S.tab === 'pages' && !inField) {
         if (k === 'c') { e.preventDefault(); copySel(); }
         else if (k === 'v') { e.preventDefault(); pasteSel(); }

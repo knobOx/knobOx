@@ -91,8 +91,8 @@ Notes:
 - Drag a file onto a slot to send it, or a slot onto the file list to save it. Each row also has buttons for **Edit**, **Save**, **Send current** and **✕ (delete)**.
 - **Delete a scene** from the E16: asks first, optionally saves it to the scene folder (or as a download) before deleting. The E16 has no known delete command, so the slot is overwritten with the factory-empty scene ("S. 6" etc.), byte-identical to an unused slot.
 - A bar above the editor always shows what you're editing and where it comes from (E16 slot, scene folder or a file).
-- **Save to computer** (Ctrl+S) writes back to the file the scene came from, or into the scene folder; without a folder it downloads. **Save to E16** writes a scene read from the device back to its slot, or asks for a slot. **Close** goes back to the library.
-- Nothing is overwritten silently: saving a slot over an existing file always asks first. If the existing file has the matching Lua script, that script is kept.
+- **Save to computer** (Ctrl+S) writes back to the file the scene came from, or into the scene folder; without a folder it downloads. **Save as …** (Ctrl+Shift+S) asks for a file name and saves into the scene folder, otherwise through the browser's save dialog or as a download. **Save to E16 …** opens the send dialog with a slot choice (a scene read from the device starts on its own slot). **Close** goes back to the library.
+- Nothing is overwritten silently: writing back to the open file, saving over an existing file in the scene folder and sending to an E16 slot always ask first. If an existing file has the matching Lua script, that script is kept.
 - **Scripts on the device:** reading a script back from the E16 isn't supported yet (the request is still unknown). Such slots load without their script and can't be sent back, so the script on the device can't be erased by accident.
 
 ### Editor
@@ -100,7 +100,8 @@ Notes:
 - 4×4 grid per page with name, color, Dest 1, Dest 2 and Push; changed encoders are highlighted.
 - Encoder editor with all fields, type-dependent labels and CC usage per channel.
 - Bulk editing for a selection, a page or a page range, row- or column-wise: distribute CCs (optionally skipping used ones), set up Push as CC, set any field, name by pattern (`{n}`, `{cc}`, `{e}`, `{p}`), fixed colors or gradients, copy and swap pages.
-- Copy/paste encoders (Ctrl+C/V), drag to swap, Alt+drag to copy.
+- Copy/paste encoders (Ctrl+C/V), drag to swap, Alt+drag to copy. The checkboxes next to Paste choose what is pasted (Name, Abbr, Color, Dest 1, Dest 2, Push), e.g. only the color onto encoders that control other devices.
+- Drag a Page onto another Page to swap them, Alt+drag (or Ctrl+drag) to copy. "Nav on swap" decides what happens to Page navigation pushes (Nav → P…): "Move with page" swaps them with the page (pushes leading to one of the two pages get its new number), "Stay in place" pins them to their position, e.g. for a navigation layout that is the same on every page. Pushes arriving at a pinned position are overwritten, Nav pushes arriving at a free position are turned off.
 - CC overview: 16 channels × 128 CCs, duplicates highlighted, detail view with jump to encoder and a list of free CCs.
 - **Draw your own scene icons:** a nice side effect of decoding the format. Each scene has a 16×16 one-bit icon, and the Scene tab has a pixel editor for it (paint, clear, invert). The icon goes to the E16 together with the scene.
 - Scene settings and raw values of all other fields.

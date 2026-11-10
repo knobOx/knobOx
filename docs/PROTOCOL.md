@@ -133,7 +133,7 @@ Multi-byte values are **big-endian**. Strings are Latin-1, zero-padded, not nece
 | 43 | 16 | `turn_actions[1]` |
 | 59 | 1 | `color2` |
 
-Older files (e.g. from the community project) have a `bipolar` field instead of `color2`; how it maps to this byte is unknown, and the editor sends 0.
+The editor does not show `color2`; it keeps the value read from the file or device and writes it back unchanged. Older files (e.g. from the community project) have a `bipolar` field instead of `color2`; how it maps to this byte is unknown, and the editor sends 0.
 
 ### Action
 
