@@ -312,9 +312,14 @@
       const scene = await readSlot(slot, report);
       S.page = 0;
       loadText(JSON.stringify(scene), L().fileNameFor(scene.title), null, false, null);
-      toast('Loaded "' + scene.title + '" from slot ' + slot + ' (not saved yet)');
+      toast(scene.scriptMissing ? scriptMissingText(scene) : 'Loaded "' + scene.title + '" from slot ' + slot + ' (not saved yet)', scene.scriptMissing);
     });
   }
+  function scriptMissingText(scene) {
+    return '"' + scene.title + '" uses the script "' + scene.code.scriptName + '", which cannot be read from the E16 yet. ' +
+      'Pages and settings were loaded; the script itself is missing, so this copy cannot be sent back.';
+  }
+
   /* Save a slot into the scene folder, or as a browser download when no folder is available. */
   function saveSlotToFolder(slot) {
     return deviceOp('Downloading slot ' + slot, async (midi, report) => {
@@ -322,12 +327,24 @@
       const name = L().fileNameFor(scene.title);
       if (!S.lib.dir) {
         downloadText(name, JSON.stringify(scene));
-        toast('Downloaded slot ' + slot + ' as ' + name);
+        toast(scene.scriptMissing ? scriptMissingText(scene) : 'Downloaded slot ' + slot + ' as ' + name, scene.scriptMissing);
         return;
       }
-      if (await L().exists(S.lib.dir, name) && !confirm(name + ' already exists. Overwrite?')) return;
+      const existing = S.lib.files.find(f => f.name.toLowerCase() === name.toLowerCase());
+      let note = '';
+      if (existing) {
+        let old = null;
+        try { old = JSON.parse(await L().read(existing.handle)); } catch (e) { /* unreadable: plain overwrite */ }
+        // Keep the script from the local file instead of overwriting it with a script-less copy.
+        const keepScript = scene.scriptMissing && old && old.code && old.code.code && old.code.scriptName === scene.code.scriptName;
+        const warn = scene.scriptMissing && !keepScript ? '\n\nWarning: the script cannot be read from the E16, the saved file will not contain it.' : '';
+        if (!confirm(name + ' already exists. Overwrite it with slot ' + slot + '?' + (keepScript ? '\n\nThe script "' + scene.code.scriptName + '" from the existing file is kept.' : '') + warn)) return;
+        if (keepScript) { scene.code.code = old.code.code; scene.code.fullScript = old.code.fullScript || ''; note = ' (script kept from the existing file)'; }
+      } else if (scene.scriptMissing) {
+        note = ' – without its script, which cannot be read from the E16 yet';
+      }
       await L().save(S.lib.dir, name, JSON.stringify(scene));
-      toast('Saved slot ' + slot + ' as ' + name);
+      toast('Saved slot ' + slot + ' as ' + name + note, scene.scriptMissing && !note.includes('kept'));
       await refreshFolder();
     });
   }

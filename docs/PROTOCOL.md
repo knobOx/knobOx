@@ -68,7 +68,7 @@ u8 0x14 | u16 BE bodyLen | u8 0x00 | body | u32 BE CRC
 ```
 
 - **Slot list:** the OXI App requests the header (`cmd 00`) of slots 0–15 and shows their titles. Empty slots report default titles such as "S. 4".
-- **Download:** header, then pages 0–11. The OXI App did not request the script block for a scene without a script; the editor requests it only when the header contains a script name.
+- **Download:** header, then pages 0–11. How a script is read back is **not known yet**: the E16 does not answer a `07 04` request. The editor tries it once for scenes with a script name; if there is no answer, the scene is loaded without code and refused for upload, so the script on the device cannot be erased by accident.
 - After a download the OXI App also sent `F0 00 21 5B 02 01 07 52 F7`. Its meaning is unknown; the editor does not send it.
 
 ## Body layouts

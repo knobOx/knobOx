@@ -213,6 +213,9 @@
     });
     const code = s && s.code && s.code.code;
     if (code && utf8(code).length >= SCRIPT_SIZE) p.push('The script is too large (max. ' + (SCRIPT_SIZE - 1) + ' bytes).');
+    if (s && s.code && s.code.scriptName && !code) {
+      p.push('The scene refers to the script "' + s.code.scriptName + '" but contains no script code. Sending it would erase the script on the E16. Open the original file with the script instead.');
+    }
     return p;
   }
 
@@ -337,9 +340,17 @@
         pages.push(await fetchBlock(sess, CMD_PAGE, w, i, 'page ' + (i + 1)));
         if (onProgress) onProgress(i + 2, total);
       }
-      let script = null;
-      if (decodeHeader(header).code.scriptName) script = await fetchBlock(sess, CMD_SCRIPT, w, 0, 'script');
-      return decodeScene(header, pages, script);
+      // How the OXI App reads scripts back is not known yet; the E16 does not answer this guessed
+      // request. If it fails, the scene comes back without code and is flagged so that it cannot be
+      // sent back by accident (that would erase the script on the device).
+      let script = null, scriptMissing = false;
+      if (decodeHeader(header).code.scriptName) {
+        try { script = await fetchBlock(sess, CMD_SCRIPT, w, 0, 'script'); }
+        catch (e) { scriptMissing = true; }
+      }
+      const scene = decodeScene(header, pages, script);
+      if (scriptMissing) Object.defineProperty(scene, 'scriptMissing', { value: true, enumerable: false });
+      return scene;
     } finally { sess.close(); }
   }
 
