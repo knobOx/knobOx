@@ -733,8 +733,8 @@
 
   // ---------- bulk tools ----------
   const bulkState = {
-    cc: { role: 'd1', start: 1, step: 1, skipUsed: false, setTypeIfOff: true, channel: 'keep' },
-    push: { source: 'offset', offset: 16, start: 1, mode: 0, pval: 127, rval: 0, copyChannel: true },
+    cc: { role: 'd1', start: 1, step: 1, skipUsed: false, setTypeIfOff: true, keepOther: true, channel: 'keep' },
+    push: { source: 'offset', offset: 16, start: 1, mode: 0, pval: 127, rval: 0, copyChannel: true, keepOther: true },
     field: { role: 'd1', key: 'type', value: 3 },
     name: { pattern: 'CC{cc}', start: 1, target: 'both' },
     color: { mode: 'fixed', a: 0, b: 90 },
@@ -784,6 +784,8 @@
         'Skips CCs that are already used outside the scope on the effective channel'),
       row('Activate Off targets', el('input', { type: 'checkbox', checked: o.setTypeIfOff, onchange: e => { o.setTypeIfOff = e.target.checked; } }),
         'Changes type Off to CC Abs (Dest) or CC (Push)'),
+      row('Keep navigation & other functions', el('input', { type: 'checkbox', checked: o.keepOther, onchange: e => { o.keepOther = e.target.checked; } }),
+        'Skips actions that are neither Off nor CC, e.g. Page navigation, Script, Note or PC. They keep their function and use no CC number.'),
       el('button', { class: 'btn primary', onclick: e => { e.preventDefault(); runCC(); } }, 'Distribute'));
   }
   function runCC() {
@@ -792,6 +794,7 @@
     const res = commit(() => M.distributeCC(S.scene, S.settings, t, o));
     if (!res) return;
     toast(res.assigned + ' CCs assigned' + (res.last !== null ? ' (up to CC ' + res.last + ')' : '') +
+      (res.kept ? ', ' + res.kept + ' kept (navigation or other function)' : '') +
       (res.overflow ? ', ' + res.overflow + ' without a free CC (> 127)' : ''), res.overflow > 0);
   }
 
@@ -807,16 +810,19 @@
       row('P.Val', numEl(o.pval, v => { o.pval = v; }, { min: 0, max: 127, class: 'w-num' })),
       row('R.Val', numEl(o.rval, v => { o.rval = v; }, { min: 0, max: 127, class: 'w-num' })),
       row('Channel from Dest 1', el('input', { type: 'checkbox', checked: o.copyChannel, onchange: e => { o.copyChannel = e.target.checked; } })),
+      row('Keep navigation & other functions', el('input', { type: 'checkbox', checked: o.keepOther, onchange: e => { o.keepOther = e.target.checked; } }),
+        'Only Push actions that are Off or already CC are changed; Page navigation, Set to Default, Script etc. stay as they are.'),
       el('button', { class: 'btn primary', onclick: e => { e.preventDefault(); runPush(); } }, 'Apply'));
   }
   function runPush() {
     const o = bulkState.push;
-    let n = 0, skipped = 0, cc = o.start;
+    let n = 0, skipped = 0, kept = 0, cc = o.start;
     commit(() => {
       for (const t of targets()) {
         const enc = S.scene.pages[t.p].encoders[t.e];
         const d1 = M.getAction(enc, 'd1');
         const pa = enc.push_action;
+        if (o.keepOther && pa.type !== 0 && !M.isCC('push', pa)) { kept++; continue; }
         let num;
         if (o.source === 'offset') {
           if (!M.isCC('d1', d1)) { skipped++; continue; }
@@ -828,7 +834,8 @@
         n++;
       }
     });
-    toast(n + ' Push actions set' + (skipped ? ', ' + skipped + ' skipped' : ''), skipped > 0);
+    toast(n + ' Push actions set' + (kept ? ', ' + kept + ' kept (navigation or other function)' : '') +
+      (skipped ? ', ' + skipped + ' skipped' : ''), skipped > 0);
   }
 
   function bulkField() {

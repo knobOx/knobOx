@@ -269,8 +269,10 @@
   /*
    * Distribute CC numbers.
    * targets: [{p, e}] in assignment order.
-   * o: { role, start, step, skipUsed, setTypeIfOff, channel ('keep' | 0..16) }
-   * Returns { assigned, last, overflow }.
+   * o: { role, start, step, skipUsed, setTypeIfOff, keepOther, channel ('keep' | 0..16) }
+   * keepOther: leave actions alone that are neither Off nor a CC type (e.g. Page navigation,
+   * Script, Note, PC); they don't consume a CC number.
+   * Returns { assigned, last, overflow, kept }.
    */
   function distributeCC(scene, settings, targets, o) {
     const role = o.role;
@@ -284,11 +286,12 @@
       });
     }
     let cc = o.start | 0;
-    let assigned = 0, last = null, overflow = 0;
+    let assigned = 0, last = null, overflow = 0, kept = 0;
     for (const t of targets) {
       const page = scene.pages[t.p];
       const a = getAction(page.encoders[t.e], role);
       if (!a) continue;
+      if (o.keepOther && a.type !== 0 && !isCC(role, a)) { kept++; continue; }
       if (o.setTypeIfOff && a.type === 0) a.type = role === 'push' ? 2 : 3;
       if (o.channel !== 'keep' && o.channel !== undefined) a.channel = Number(o.channel);
       const ch = effectiveChannel(page, a, settings);
@@ -301,7 +304,7 @@
       last = cc;
       cc += step;
     }
-    return { assigned, last, overflow };
+    return { assigned, last, overflow, kept };
   }
 
   /* E16 color index 0..99 -> CSS color from the app palette. */

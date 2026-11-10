@@ -13,7 +13,7 @@ Hi! I own an OXI E16 and an OXI One MK2, and right now the E16 is the one that m
 So knobOx focuses on overview and speed:
 
 - **Duplicate detection** is my favorite part: a CC overview for all 16 channels, duplicate assignments highlighted, a list of free CCs per channel, and one click to jump to the encoder in question.
-- **Bulk editing:** distribute CCs across a selection, a page or a page range in one go (optionally skipping CCs that are already taken), set up all push encoders as CCs at once, name encoders by pattern, apply colors and gradients.
+- **Bulk editing:** distribute CCs across a selection, a page or a page range in one go (optionally skipping CCs that are already taken), set up all push encoders as CCs at once, name encoders by pattern, apply colors and gradients. Page navigation and other push functions are skipped by default, so they don't get turned into CCs.
 - Workflow-wise I took some inspiration from the Faderfox EC4 web editor.
 
 It's a hobby project, shared in a community spirit. It works for me, but it isn't polished software, so take it as it is. Ideas, bug reports and pull requests are very welcome.
