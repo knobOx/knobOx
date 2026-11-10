@@ -1,4 +1,4 @@
-# knobOx
+# <img src="assets/icon.svg" alt="" width="40" align="top"> knobOx
 
 **knobOx** is an unofficial, browser-based editor for **OXI E16** scene files (`.oxie16`) that can also transfer scenes to and from the device over USB-MIDI. It runs entirely in the browser: no build step, no server-side code, nothing is uploaded anywhere.
 

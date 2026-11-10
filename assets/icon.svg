@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- knobOx logo: a stylized 16-encoder controller (display on top, 4x4 knobs with LED rings). -->
+  <rect x="3" y="3" width="58" height="58" rx="12" fill="#22262d" stroke="#ff8a2b" stroke-width="2.5"/>
+  <rect x="21" y="8.5" width="22" height="5.5" rx="1.5" fill="#ff8a2b"/>
+  <defs>
+    <g id="k">
+      <!-- LED ring: 3/4 lit like a value indicator, dark rest -->
+      <circle r="4.4" fill="none" stroke="#454b55" stroke-width="1.5"/>
+      <circle r="4.4" fill="none" stroke="#ff8a2b" stroke-width="1.5" stroke-dasharray="20.7 7" transform="rotate(135)"/>
+      <circle r="2.3" fill="#e9edf2"/>
+    </g>
+    <g id="row">
+      <use href="#k" x="15" y="0"/>
+      <use href="#k" x="26.3" y="0"/>
+      <use href="#k" x="37.7" y="0"/>
+      <use href="#k" x="49" y="0"/>
+    </g>
+  </defs>
+  <use href="#row" y="22"/>
+  <use href="#row" y="32.3"/>
+  <use href="#row" y="42.6"/>
+  <use href="#row" y="52.9"/>
+</svg>
