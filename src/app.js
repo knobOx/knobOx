@@ -1091,7 +1091,7 @@
       el('ul', null,
         li('Structure', 'Scene → 12 Pages → 16 encoders → Dest 1, Dest 2 (turn_actions) and Push (push_action)'),
         li('Verified', 'Types, Output, channel (Page channel = MIDI channel 1–16, destination channel 0 = Page), Accel Mode, Display, color 0–99'),
-        li('Unverified (?)', 'Dest type 11 and Push type 12 (Script, found in community scenes), Push behavior 1, Navigate options lower/upper, instrument/parameter'),
+        li('Unverified (?)', 'Push behavior 1 (Press + Release), Page navigation options lower/upper, instrument/parameter'),
         li('Color', 'Palette 0–99 from the app\'s color picker'),
       ),
     ]);

@@ -19,7 +19,7 @@
     8: { label: 'Note', sure: true },
     9: { label: 'NRPN', sure: true },
     10: { label: 'Snapshot', sure: true },
-    11: { label: 'Script' },
+    11: { label: 'Script', sure: true },  // used with scriptId in scenes that carry a Lua script
   };
 
   const PUSH_TYPES = {
@@ -32,7 +32,7 @@
     6: { label: 'Page', sure: true },
     7: { label: 'Record', sure: true },
     8: { label: 'Play/Pause Rec', sure: true },
-    12: { label: 'Script' },
+    12: { label: 'Script', sure: true },
   };
 
   // 1 is not documented anywhere; kept so existing files stay editable.

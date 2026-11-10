@@ -4,6 +4,14 @@ Unofficial description, reverse-engineered from passive USB captures (Wireshark 
 
 The reference implementation is [src/sysex.js](../src/sysex.js). It reproduces the captured uploads and decodes the captured downloads byte for byte; [test/index.html](../test/index.html) checks this against the fixtures in [test/fixtures/](../test/fixtures/).
 
+### Related official material
+
+OXI Instruments publishes the [E16 SDK](https://github.com/OXI-Instruments/E16-SDK) for custom firmware. It does not describe scenes, but it is consistent with this document:
+
+- MCU: GigaDevice GD32F405RG (STM32F405-compatible). The scene checksum below is the STM32 hardware CRC.
+- The firmware bootloader (`tools/e16_upload.py` in the SDK) uses the same `F0 00 21 5B 02 01` prefix with its own commands (`00 7E` page, `00 53` ACK, `00 54` NACK). Its pages are nibble-encoded with a byte-sum checksum, unlike the scene transfer described here.
+- Recovery: with the E16 off, hold encoders 15 and 16 and press Shift to enter bootloader mode ("OXI E16 FW Update").
+
 ## Transport
 
 - The E16 enumerates as a USB-MIDI device with three port pairs. Scene transfer uses the first one ("OXI E16", not "MIDIIN2/MIDIOUT2 (OXI E16)"), cable 0.

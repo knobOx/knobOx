@@ -24,6 +24,8 @@ It's a hobby project, shared in a community spirit. It works for me, but it isn'
 
 > [!WARNING]
 > **Use at your own risk.** This project is not affiliated with, endorsed by or supported by OXI Instruments. The device protocol was reverse-engineered (see below) and may change with any firmware or app update. Sending data to your E16 overwrites the selected scene slot. Back up your scenes with the official OXI App first. The software is provided "as is", without warranty of any kind; the authors cannot be held responsible for lost data, damaged devices or any other consequences of using it.
+>
+> knobOx only writes scene data, never firmware. If your E16 ever ends up in a bad state, OXI's [E16 SDK](https://github.com/OXI-Instruments/E16-SDK) describes the recovery: with the E16 switched off, hold encoders 15 and 16 and press Shift to enter bootloader mode, then reinstall the official firmware with the OXI App.
 
 ## Getting started
 
@@ -85,6 +87,7 @@ Nothing in this repository is taken from OXI's source code or firmware.
 
 - **File format:** comparing `.oxie16` files exported by the OXI App, a calibration scene with a distinct value in every field, and screenshots of how the OXI App displays those values. Further field meanings come from the community project [brentvatne/oxi-e16-config](https://github.com/brentvatne/oxi-e16-config).
 - **USB protocol:** passive USB captures (Wireshark + USBPcap on Windows) while the OXI App uploaded, listed and downloaded scenes on the user's own device. The checksum algorithm was identified by testing common CRC variants against the captures; a symbol name visible in the app binary (`HalCRC`) pointed to the STM32 hardware CRC.
+- **Cross-check with OXI's own SDK:** the official [E16 SDK](https://github.com/OXI-Instruments/E16-SDK) (for custom firmware, MIT) doesn't cover scenes, but it confirms two findings: its bootloader uses the same SysEx frame (`F0 00 21 5B 02 01 …`, `53` = ACK), and the E16 runs on a GD32F405, an STM32F405-compatible MCU. That's why the scene checksum is the STM32 hardware CRC.
 - **Verification:** the encoder reproduces the captured uploads and decodes the captured downloads byte for byte. `test/index.html` runs these checks in the browser (serve the repository and open `/test/`).
 
 The full protocol description is in [docs/PROTOCOL.md](docs/PROTOCOL.md).
@@ -95,8 +98,8 @@ JSON: scene → `pages[12]` → `encoders[16]` → `turn_actions[2]` (Dest 1, De
 
 | Field | Meaning | Source |
 |---|---|---|
-| `turn_actions[].type` | 0 Off, 1 CC Rel1, 2 CC Rel2, 3 CC Abs, 4 CC14, 5 PC, 6 PB, 7 AT, 8 Note, 9 NRPN, 10 Snapshot, 11 Script | 0/3 verified in the app, 1–10 community docs, 11 seen in community scenes |
-| `push_action.type` | 0 Off, 1 Note, 2 CC, 3 PC, 4 Set to Default, 5 AT, 6 Page, 7 Record, 8 Play/Pause Rec, 12 Script | 0/2/6 verified, 1–8 community docs, 12 seen in community scenes |
+| `turn_actions[].type` | 0 Off, 1 CC Rel1, 2 CC Rel2, 3 CC Abs, 4 CC14, 5 PC, 6 PB, 7 AT, 8 Note, 9 NRPN, 10 Snapshot, 11 Script | 0/3 verified in the app, 1–10 community docs, 11 used with `scriptId` in script scenes |
+| `push_action.type` | 0 Off, 1 Note, 2 CC, 3 PC, 4 Set to Default, 5 AT, 6 Page, 7 Record, 8 Play/Pause Rec, 12 Script | 0/2/6 verified, 1–8 community docs, 12 used with `scriptId` in script scenes |
 | `push_action.mode` | 0 Press only, 1 Press + Release, 2 Toggle | 0 and 2 verified, 1 assumed |
 | `nr1` | CC number / note / PC number; LSB for NRPN | community docs |
 | `nr2` | MSB for NRPN, LSB for CC14, target page (0-based) for Page, 0 for CC | community docs |
@@ -113,6 +116,13 @@ JSON: scene → `pages[12]` → `encoders[16]` → `turn_actions[2]` (Dest 1, De
 | `color` | palette 0–99, 10×10 row by row as in the app's color picker | sampled from the app |
 | `icon` | 32 bytes, 16 rows of 2 bytes, MSB = leftmost pixel | verified |
 | `code.code` | minified Lua script that is sent to the device (max. 8191 bytes) | verified |
+
+## Ideas and contributions welcome
+
+- Reading Lua scripts back from the E16 (needs a USB capture of the OXI App doing it).
+- A small command-line tool (e.g. Python + `python-rtmidi`, like the upload tool in OXI's SDK) to send, back up and list scenes without a browser: handy for headless Linux boxes or cron backups. The protocol is all in [docs/PROTOCOL.md](docs/PROTOCOL.md).
+- Script editing in the browser.
+- Support for more OXI devices.
 
 ## Repository layout
 
