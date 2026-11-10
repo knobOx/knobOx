@@ -342,7 +342,7 @@
       async open() { await input.open(); await output.open(); },
       exchange(msg, label) {
         // Large blocks (the 8 KB script block) take longer to transfer and store, so the wait grows with the size.
-        const wait = (timeoutMs || 3000) + msg.length;
+        const wait = (timeoutMs || 3000) + Math.round(msg.length / 4);
         return new Promise((resolve, reject) => {
           waiter = { resolve, timer: setTimeout(() => {
             waiter = null;
@@ -375,12 +375,51 @@
           // A block that arrived incomplete (its end, including F7, was lost) leaves the E16 waiting for
           // the rest; it would swallow the next transfer's first message. A short read request ends it.
           if (e.timeout) await sess.poke(request(CMD_HEADER, msgs[0][8], 0));
+          e.index = i;
           throw e;
         }
         if (!isAck(reply)) throw new Error('Unexpected reply: ' + hex(reply));
         if (onProgress) onProgress(i + 1, msgs.length);
       }
     } finally { sess.close(); }
+  }
+
+  /* Read the given upload blocks back from the device and compare them with what was sent. */
+  async function verifyBlocks(msgs, ports, timeoutMs) {
+    const sess = makeSession(ports, timeoutMs);
+    try {
+      await sess.open();
+      for (const m of msgs) {
+        const sent = unpack7(Array.from(m.slice(10, m.length - 1))).slice(8, -4);
+        const got = await fetchBlock(sess, m[7], m[8], m[9], 'check');
+        if (got.length !== sent.length || got.some((b, k) => b !== sent[k])) return false;
+      }
+      return true;
+    } finally { sess.close(); }
+  }
+
+  /*
+   * Upload a scene. If only the last block (script) gets no reply, the header and pages are read back:
+   * when they match and the scene has no script, the scene is on the device and the result carries
+   * scriptBlockFailed (plus the original error) instead of throwing. This happens on Linux when the
+   * ALSA MIDI output buffer is smaller than the script block.
+   */
+  async function uploadScene(scene, slot, ports, onProgress) {
+    const msgs = encodeScene(scene, slot);
+    try {
+      await sendScene(msgs, ports, onProgress);
+      return { ok: true };
+    } catch (e) {
+      if (!(e.timeout && e.index === msgs.length - 1)) throw e;
+      let same = false;
+      try { same = await verifyBlocks(msgs.slice(0, -1), ports); } catch (e2) { /* keep the original error */ }
+      const hasScript = !!(scene.code && scene.code.code);
+      if (!same || hasScript) {
+        e.message = (same ? 'Scene stored, but its script did not arrive completely. ' : '') + e.message;
+        throw e;
+      }
+      return { ok: true, scriptBlockFailed: true, error: e };
+    }
   }
 
   async function fetchBlock(sess, cmd, wireSlot, idx, label) {
@@ -434,7 +473,7 @@
 
   const api = {
     SLOTS, stm32Crc, pack7, unpack7, encodeScene, decodeScene, checkScene, parseResponse, request,
-    toSyx, splitSyx, emptyScene, midiAccess, findPorts, sendScene, readScene, listScenes, isAck, ACK,
+    toSyx, splitSyx, emptyScene, midiAccess, findPorts, sendScene, uploadScene, verifyBlocks, readScene, listScenes, isAck, ACK,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.E16Sysex = api;

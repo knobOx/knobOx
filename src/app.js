@@ -187,14 +187,17 @@
       const output = access.outputs.get(portSel.value);
       // Matching input: same name, or the E16 input found automatically.
       const input = [...access.inputs.values()].find(i => i.name === output.name) || X.findPorts(access).input;
-      const msgs = X.encodeScene(S.scene, slot);
-      bar.max = msgs.length; bar.value = 0;
+      bar.max = X.encodeScene(S.scene, slot).length; bar.value = 0;
       btnGo.disabled = btnConnect.disabled = true;
       status.textContent = 'Sending …';
       try {
-        await X.sendScene(msgs, { input, output }, (n, total) => { bar.value = n; status.textContent = 'Sending … ' + n + '/' + total; });
-        status.textContent = 'Done: "' + S.scene.title + '" is now in slot ' + slot + '.';
-        toast('Sent to E16 (slot ' + slot + ')');
+        const res = await X.uploadScene(S.scene, slot, { input, output }, (n, total) => {
+          bar.value = n;
+          status.textContent = n === total - 1 ? 'Scene sent, waiting for the script block …' : 'Sending … ' + n + '/' + total;
+        });
+        bar.value = bar.max;
+        status.textContent = 'Done: "' + S.scene.title + '" is now in slot ' + slot + '.' + (res.scriptBlockFailed ? ' ' + scriptBlockNote() : '');
+        toast('Sent to E16 (slot ' + slot + ')' + (res.scriptBlockFailed ? ', checked by reading it back' : ''));
       } catch (e) {
         status.textContent = 'Error: ' + transferError(e);
       } finally {
@@ -322,6 +325,12 @@
   const ALSA_BUFFER_HINT = 'Linux: the kernel\'s MIDI output buffer (4 KB by default) is too small for the 9 KB script block, so the block arrived incomplete. '
     + 'Increase it, then reload this page: sudo sh -c "echo 32768 > /sys/module/snd_seq_midi/parameters/output_buffer_size". '
     + 'To keep it after a reboot: echo "options snd-seq-midi output_buffer_size=32768" | sudo tee /etc/modprobe.d/snd-seq-midi.conf';
+  /* The scene arrived and was verified, only the (empty) script block got no reply. */
+  function scriptBlockNote() {
+    return 'Checked by reading it back: settings and all pages arrived. Only the empty script block was not confirmed'
+      + (onLinux() ? ' (Linux: the MIDI output buffer is too small, see README)' : '')
+      + '. If this slot had a script before, it may still be there.';
+  }
   function transferError(e) {
     return e.message + (e.timeout && e.size > 4096 && onLinux() ? ' ' + ALSA_BUFFER_HINT : '');
   }
@@ -451,7 +460,7 @@
       const cur = S.lib.slots && S.lib.slots[slot - 1];
       if (saveFirst && !(await saveSlot(slot, report))) { toast('Not deleted: slot ' + slot + ' was not saved.', true); return; }
       const empty = X().emptyScene(slot);
-      await X().sendScene(X().encodeScene(empty, slot), midi, report);
+      await X().uploadScene(empty, slot, midi, report);
       if (S.lib.slots) S.lib.slots[slot - 1] = { slot, title: empty.title, color: empty.color, scriptName: '' };
       // This toast replaces the one from saveSlot, so repeat its script warning.
       const noScript = saveFirst && cur && cur.scriptName;
@@ -491,9 +500,9 @@
     const cur = S.lib.slots && S.lib.slots[slot - 1];
     if (!confirm('Send "' + label + '" to slot ' + slot + (cur ? ' (replaces "' + cur.title + '")' : '') + '?')) return;
     return deviceOp('Sending to slot ' + slot, async (midi, report) => {
-      await X().sendScene(X().encodeScene(scene, slot), midi, report);
+      const res = await X().uploadScene(scene, slot, midi, report);
       if (S.lib.slots) S.lib.slots[slot - 1] = { slot, title: scene.title, color: scene.color, scriptName: (scene.code || {}).scriptName || '' };
-      toast('Saved "' + scene.title + '" to E16 slot ' + slot);
+      toast('Saved "' + scene.title + '" to E16 slot ' + slot + (res.scriptBlockFailed ? '. ' + scriptBlockNote() : ''), !!res.scriptBlockFailed);
       return true;
     });
   }
