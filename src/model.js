@@ -137,9 +137,15 @@
   }
 
   /* Field descriptors for the action editor, depending on role and type. */
+  // Types whose nr2 has no meaning: turn Off, CC Rel1/2, CC Abs, PC, PB, AT; push Off, CC, PC, Set to Default, AT.
+  const TURN_NR2_UNUSED = [0, 1, 2, 3, 5, 6, 7];
+  const PUSH_NR2_UNUSED = [0, 2, 3, 4, 5];
+
   function actionFields(role, a, pages) {
     const f = [];
     const t = a.type;
+    // Keys left out on purpose (unused for this type); their values are kept in the file as they are.
+    const hidden = new Set();
     const chOpts = { 0: { label: 'Page', sure: true } };
     for (let i = 1; i <= 16; i++) chOpts[i] = { label: String(i), sure: true };
 
@@ -155,7 +161,9 @@
       if (t === 9) { n1 = 'LSB'; n2 = 'MSB'; range = [0, 16383]; }
       if (t === 6) range = [-8192, 8191];
       f.push({ key: 'nr1', label: n1, kind: 'num', min: 0, max: 127 });
-      f.push({ key: 'nr2', label: n2, kind: 'num', min: 0, max: 127, raw: ![4, 9].includes(t) });
+      // nr2 is unused for Off, CC Rel/Abs, PC, PB and AT (the OXI App leaves stale values there).
+      if (TURN_NR2_UNUSED.includes(t)) hidden.add('nr2');
+      else f.push({ key: 'nr2', label: n2, kind: 'num', min: 0, max: 127, raw: ![4, 9].includes(t) });
       f.push({ key: 'lower', label: t === 8 ? 'Min Note' : 'Min', kind: 'num', min: range[0], max: range[1], note: t === 8 });
       f.push({ key: 'upper', label: t === 8 ? 'Max Note' : 'Max', kind: 'num', min: range[0], max: range[1], note: t === 8 });
       f.push({ key: 'defaultValue', label: 'Default', kind: 'num', min: range[0], max: range[1] });
@@ -171,6 +179,8 @@
         const opts = {};
         (pages || []).forEach((p, i) => { opts[i] = { label: 'P' + (i + 1) + ' ' + p.title }; });
         f.push({ key: 'nr2', label: 'Target page', kind: 'select', options: opts });
+      } else if (PUSH_NR2_UNUSED.includes(t)) {
+        hidden.add('nr2');
       } else {
         f.push({ key: 'nr2', label: n2, kind: 'num', min: 0, max: 127, raw: true });
       }
@@ -188,7 +198,7 @@
     f.push({ key: 'scriptId', label: 'Script-ID', kind: 'num', min: 0, max: 255 });
 
     // Unknown keys from newer firmware stay editable as raw values.
-    const known = new Set(f.map(x => x.key));
+    const known = new Set([...f.map(x => x.key), ...hidden]);
     Object.keys(a).forEach(k => {
       if (!known.has(k)) f.push({ key: k, label: k, kind: typeof a[k] === 'number' ? 'num' : 'text', raw: true });
     });

@@ -447,6 +447,33 @@
       toast('Slot ' + slot + ' deleted' + (noScript ? '. The saved copy does not contain the script "' + cur.scriptName + '".' : ''), !!noScript);
     });
   }
+  /* Delete a file from the scene folder. The File System Access API has no trash, so ask first. */
+  function deleteFileDialog(f) {
+    const close = () => $('#dlg').close();
+    const isOpen = S.fileHandle && S.fileName === f.name;
+    showDialog([
+      el('h2', null, 'Delete "' + f.name + '"?'),
+      el('p', null, 'The file is removed from the folder "' + S.lib.dir.name + '". It does not go to the trash and cannot be undone.'),
+      isOpen ? el('p', { class: 'muted' }, 'The scene stays open in the editor and can be saved again.') : null,
+      el('div', { class: 'dlgactions' },
+        el('button', { class: 'btn danger', type: 'button', onclick: () => { close(); deleteFile(f); } }, 'Delete file'),
+        el('button', { class: 'btn', type: 'button', onclick: close }, 'Cancel')),
+    ].filter(Boolean), true);
+  }
+  async function deleteFile(f) {
+    try { await L().remove(S.lib.dir, f.name); }
+    catch (e) { toast('Could not delete ' + f.name + ': ' + e.message + (onLinux() ? ' ' + FOLDER_FLATPAK : ''), true); return; }
+    if (S.fileHandle && S.fileName === f.name) {
+      // The open scene no longer has a file behind it; keep it as unsaved so it isn't lost by accident.
+      S.fileHandle = null;
+      S.source = { kind: 'file' };
+      S.dirty = true; saveSession();
+    }
+    toast('Deleted ' + f.name);
+    await refreshFolder();
+    render();
+  }
+
   function sendToSlot(scene, slot, label) {
     const problems = X().checkScene(scene);
     if (problems.length) { toast(problems.join(' '), true); return; }
@@ -485,6 +512,11 @@
           : el('p', null, h.browser + ' does not support the File System Access API. Use Chrome, Chromium, Edge or Brave (with the flag enabled) to work with a scene folder.'),
         el('p', { class: 'muted' }, 'Until then you can still open files with "Open" and download slots with "Save".')));
     }
+    else if (S.lib.pending) files.replaceChildren(el('div', { class: 'pad' },
+      el('p', null, 'Last used folder: ', el('b', null, S.lib.pending.name)),
+      el('button', { class: 'btn primary', onclick: pickFolder }, 'Open "' + S.lib.pending.name + '"'),
+      el('p', { class: 'muted' }, 'The folder is remembered, but after a browser restart the browser asks once for access. '
+        + 'If it offers "Allow on every visit", choose that and this step is skipped from then on.')));
     else if (!S.lib.dir) files.replaceChildren(el('p', { class: 'muted pad' }, 'Choose the folder that holds your .oxie16 files, e.g. the OXI App storage folder. A "Scenes" subfolder is used automatically.'),
       ...flatpakNote());
     else if (!S.lib.files.length) files.replaceChildren(el('p', { class: 'muted pad' }, 'No .oxie16 files in this folder.'),
@@ -497,7 +529,8 @@
       },
       el('i', { class: 'libcolor', style: { background: M.colorCss(f.color) } }),
       el('span', { class: 'libname' }, f.name.replace(/\.oxie16$/i, '')),
-      el('button', { class: 'btn small', onclick: () => openFromFolder(f) }, 'Edit'))));
+      el('button', { class: 'btn small', onclick: () => openFromFolder(f) }, 'Edit'),
+      el('button', { class: 'btn small danger', title: 'Delete this file from the scene folder', 'aria-label': 'Delete ' + f.name, onclick: () => deleteFileDialog(f) }, '✕'))));
     }
     // Drop target for device slots → save to folder.
     files.ondragover = e => { if (e.dataTransfer.types.includes('text/x-e16-slot')) { e.preventDefault(); files.classList.add('dropping'); } };
@@ -1157,7 +1190,40 @@
         li('Unverified (?)', 'Push behavior 1 (Press + Release), Page navigation options lower/upper, instrument/parameter'),
         li('Color', 'Palette 0–99 from the app\'s color picker'),
       ),
+      el('h3', null, 'Old version after an update?'),
+      el('p', null, 'The browser caches the editor\'s files. knobOx checks for a newer version when it starts and offers a reload. '
+        + 'If something still looks outdated, reload without cache: Ctrl+Shift+R (Mac: Cmd+Shift+R).'),
     ]);
+  }
+
+  // ---------- update check ----------
+  /*
+   * Browsers keep the app files in their HTTP cache (GitHub Pages: 10 minutes plus CDN; a plain local
+   * server sends no cache headers, so the browser guesses and may keep old files much longer).
+   * Compare the cached copy of every app file with the server's copy and offer a reload when they differ.
+   * The revalidating request also refreshes the cache, so a normal reload then gets the new files.
+   */
+  const APP_FILES = ['src/app.js', 'src/model.js', 'src/sysex.js', 'src/library.js', 'src/style.css'];
+  const UPDATE_RECHECK_MS = 5 * 60 * 1000;
+  let lastUpdateCheck = 0;
+  async function checkForUpdate() {
+    if (!/^https?:$/.test(location.protocol) || $('#updateBar')) return;
+    lastUpdateCheck = Date.now();
+    const urls = [location.origin + location.pathname, ...APP_FILES.map(p => new URL(p, location.href).href)];
+    try {
+      const changed = await Promise.all(urls.map(async u => {
+        const cached = await (await fetch(u, { cache: 'force-cache' })).text();
+        const fresh = await (await fetch(u, { cache: 'no-cache' })).text();
+        return cached !== fresh;
+      }));
+      if (changed.some(Boolean)) showUpdateBar();
+    } catch (e) { /* offline: no check */ }
+  }
+  function showUpdateBar() {
+    document.body.append(el('div', { id: 'updateBar', class: 'updatebar', role: 'status' },
+      el('span', null, 'A newer version of knobOx is available.'),
+      el('button', { class: 'btn primary small', onclick: () => location.reload() }, 'Reload'),
+      el('button', { class: 'btn small', 'aria-label': 'Dismiss', onclick: e => e.target.closest('.updatebar').remove() }, '✕')));
   }
 
   // ---------- wiring ----------
@@ -1219,6 +1285,10 @@
     } catch (e) { /* storage unavailable */ }
     render();
     initFolder();
+    checkForUpdate();
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && Date.now() - lastUpdateCheck > UPDATE_RECHECK_MS) checkForUpdate();
+    });
   }
 
   wire();

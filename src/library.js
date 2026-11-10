@@ -85,6 +85,11 @@
     return h;
   }
 
+  /* Delete <name> from the scene folder. Permanent: the API has no trash. */
+  async function remove(dir, name) {
+    await (await sceneDir(dir)).removeEntry(name);
+  }
+
   /* File name for a scene title, keeping it safe on all platforms. */
   function fileNameFor(title) {
     const base = String(title || 'scene').replace(/[\\/:*?"<>|]+/g, '_').trim() || 'scene';
@@ -113,5 +118,5 @@
     return { browser: 'this browser', steps: null };
   }
 
-  root.E16Library = { supported, pickFolder, storedFolder, forget, list, read, write, exists, save, fileNameFor, enableHint };
+  root.E16Library = { supported, pickFolder, storedFolder, forget, list, read, write, exists, save, remove, fileNameFor, enableHint };
 })(window);

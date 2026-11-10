@@ -43,6 +43,7 @@ Then open <http://localhost:8716>.
 
 Notes:
 
+- **Seeing an old version after an update?** Browsers cache the editor's files (GitHub Pages for 10 minutes; a plain `python3 -m http.server` sends no cache headers, so the browser may keep old files much longer). knobOx compares its cached files with the server's on start and shows a "Reload" button when a newer version is available. If something still looks outdated, reload without cache: **Ctrl+Shift+R** (Mac: Cmd+Shift+R).
 - Firefox and Safari can't open local folders (no File System Access API). In Brave, enable it under `brave://flags/#file-system-access-api`. The editor shows these hints itself.
 - Close the OXI App while the editor talks to the E16. On Windows, only one program can use the MIDI port at a time.
 - On Linux the E16 works as a class-compliant USB-MIDI device via ALSA, no drivers or udev rules needed.
@@ -68,7 +69,7 @@ Notes:
 
 ![Library: scene folder on the left, the 16 slots of the connected E16 on the right](docs/screenshots/library.png)
 
-- **On computer:** choose a scene folder once; the browser remembers it. If the folder has a `Scenes` subfolder (the OXI App's storage layout), that subfolder is used, so you can point the editor at the same folder as the OXI App.
+- **On computer:** choose a scene folder once; the browser remembers it. After a browser restart the browser asks once for access again (one click on "Open"); if it offers "Allow on every visit", that step is skipped from then on. If the folder has a `Scenes` subfolder (the OXI App's storage layout), that subfolder is used, so you can point the editor at the same folder as the OXI App. Files can be deleted from the folder with ✕ (permanently, there is no trash).
 - **On device:** connect the E16 and list all 16 slots with name, color and script.
 - Drag a file onto a slot to send it, or a slot onto the file list to save it. Each row also has buttons for **Edit**, **Save**, **Send current** and **✕ (delete)**.
 - **Delete a scene** from the E16: asks first, optionally saves it to the scene folder (or as a download) before deleting. The E16 has no known delete command, so the slot is overwritten with the factory-empty scene ("S. 6" etc.), byte-identical to an unused slot.
@@ -133,7 +134,7 @@ JSON: scene → `pages[12]` → `encoders[16]` → `turn_actions[2]` (Dest 1, De
 | `push_action.type` | 0 Off, 1 Note, 2 CC, 3 PC, 4 Set to Default, 5 AT, 6 Page, 7 Record, 8 Play/Pause Rec, 12 Script | 0/2/6 verified, 1–8 community docs, 12 used with `scriptId` in script scenes |
 | `push_action.mode` | 0 Press only, 1 Press + Release, 2 Toggle | 0 and 2 verified, 1 assumed |
 | `nr1` | CC number / note / PC number; LSB for NRPN | community docs |
-| `nr2` | MSB for NRPN, LSB for CC14, target page (0-based) for Page, 0 for CC | community docs |
+| `nr2` | MSB for NRPN, LSB for CC14, target page (0-based) for Page; unused for CC, PC, PB and AT (the OXI App leaves old values there, the editor hides the field and keeps the value) | community docs, own scenes |
 | `lower` / `upper` | Min/Max (turn), press/release value (push), navigation options (Page) | |
 | `defaultValue` | Default (anchor) value, turn actions only | |
 | `channel` (action) | 0 = page channel, 1–16 = MIDI channel | verified |
