@@ -1,0 +1,6 @@
+# Normalize text files to LF in the repository
+* text=auto eol=lf
+
+# Byte-exact test fixtures: never convert
+*.syx binary
+*.oxie16 -text
