@@ -1012,7 +1012,7 @@
   // ---------- bulk tools ----------
   const bulkState = {
     cc: { role: 'd1', start: 1, step: 1, skipUsed: false, setTypeIfOff: true, keepOther: true, channel: 'keep' },
-    push: { source: 'offset', offset: 16, start: 1, mode: 0, pval: 127, rval: 0, copyChannel: true, setTypeIfOff: true, keepOther: true },
+    push: { source: 'seq', offset: 16, start: 1, startAuto: true, skipUsed: true, mode: 0, pval: 127, rval: 0, copyChannel: true, setTypeIfOff: false, keepOther: true },
     field: { role: 'd1', key: 'type', value: 3 },
     name: { pattern: 'CC{cc}', start: 1, target: 'both' },
     color: { mode: 'fixed', a: 0, b: 90 },
@@ -1076,8 +1076,35 @@
       (res.overflow ? ', ' + res.overflow + ' without a free CC (> 127)' : ''), res.overflow > 0);
   }
 
+  /*
+   * CC usage as seen by the Push setup: chanOf gives the channel a target's Push will send on, taken tells
+   * whether ch:cc is used elsewhere. The targets' own Push CCs do not count, they get overwritten.
+   */
+  function pushUsage(t) {
+    const o = bulkState.push;
+    const own = new Set(t.map(x => x.p + '/' + x.e));
+    const uses = M.collectCCUses(S.scene, S.settings);
+    const extra = new Set();
+    const chanOf = x => {
+      const page = S.scene.pages[x.p], enc = page.encoders[x.e];
+      return M.effectiveChannel(page, o.copyChannel ? M.getAction(enc, 'd1') : enc.push_action, S.settings);
+    };
+    const taken = (ch, cc) => extra.has(ch + ':' + cc)
+      || (uses.get(ch + ':' + cc) || []).some(u => !(u.role === 'push' && own.has(u.p + '/' + u.e)));
+    return { chanOf, taken, mark: (ch, cc) => extra.add(ch + ':' + cc) };
+  }
+  /* Lowest CC (from 1) that is free on every channel the Push actions in scope will send on. */
+  function firstFreePushCC() {
+    const t = targets();
+    const u = pushUsage(t);
+    const chans = new Set(t.map(u.chanOf));
+    for (let cc = 1; cc <= 127; cc++) if (![...chans].some(ch => u.taken(ch, cc))) return cc;
+    return 1;
+  }
+
   function bulkPush() {
     const o = bulkState.push;
+    if (o.startAuto) o.start = firstFreePushCC();
     const hintText = v => o.source === 'offset'
       ? (() => {
         // Example base chosen so that negative offsets give a valid result too.
@@ -1093,12 +1120,17 @@
         o.source === 'offset' ? 0 : 1, v => { o.source = v ? 'seq' : 'offset'; render(); })),
       o.source === 'offset'
         ? row('Offset', numEl(o.offset, v => { o.offset = v; }, { min: -127, max: 127, class: 'w-num', oninput: live() }))
-        : row('Start CC', numEl(o.start, v => { o.start = v; }, { min: 0, max: 127, class: 'w-num', oninput: live() })),
+        : row('Start CC', el('span', { class: 'inl' },
+          numEl(o.start, v => { o.start = v; o.startAuto = false; render(); }, { min: 0, max: 127, class: 'w-num', oninput: live() }),
+          o.startAuto ? el('span', { class: 'muted' }, 'first free')
+            : el('button', { class: 'btn small', type: 'button', title: 'Use the lowest CC that is free on the channels in scope', onclick: e => { e.preventDefault(); o.startAuto = true; render(); } }, 'First free'))),
+      o.source === 'seq' ? row('Skip used CCs', el('input', { type: 'checkbox', checked: o.skipUsed, onchange: e => { o.skipUsed = e.target.checked; } }),
+        'Skips CCs that are already used outside the scope on the channel the Push sends on') : null,
       hint,
       row('Behavior', selectEl(M.PUSH_MODES, o.mode, v => { o.mode = v; })),
       row('P.Val', numEl(o.pval, v => { o.pval = v; }, { min: 0, max: 127, class: 'w-num' })),
       row('R.Val', numEl(o.rval, v => { o.rval = v; }, { min: 0, max: 127, class: 'w-num' })),
-      row('Channel from Dest 1', el('input', { type: 'checkbox', checked: o.copyChannel, onchange: e => { o.copyChannel = e.target.checked; } })),
+      row('Channel from Dest 1', el('input', { type: 'checkbox', checked: o.copyChannel, onchange: e => { o.copyChannel = e.target.checked; render(); } })),
       row('Activate Off targets', el('input', { type: 'checkbox', checked: o.setTypeIfOff, onchange: e => { o.setTypeIfOff = e.target.checked; } }),
         'Changes Push type Off to CC. Unchecked, Off pushes get their CC number and values but stay Off.'),
       row('Keep navigation & other functions', el('input', { type: 'checkbox', checked: o.keepOther, onchange: e => { o.keepOther = e.target.checked; } }),
@@ -1107,9 +1139,11 @@
   }
   function runPush() {
     const o = bulkState.push;
-    let n = 0, skipped = 0, kept = 0, leftOff = 0, cc = o.start;
+    let n = 0, skipped = 0, kept = 0, leftOff = 0, jumped = 0, cc = o.start;
+    const tgts = targets();
+    const usage = pushUsage(tgts);
     commit(() => {
-      for (const t of targets()) {
+      for (const t of tgts) {
         const enc = S.scene.pages[t.p].encoders[t.e];
         const d1 = M.getAction(enc, 'd1');
         const pa = enc.push_action;
@@ -1118,7 +1152,14 @@
         if (o.source === 'offset') {
           if (!M.isCC('d1', d1)) { skipped++; continue; }
           num = d1.nr1 + o.offset;
-        } else num = cc++;
+        } else {
+          if (o.skipUsed) {
+            const ch = usage.chanOf(t);
+            while (cc <= 127 && usage.taken(ch, cc)) { cc++; jumped++; }
+            if (cc <= 127) usage.mark(ch, cc);
+          }
+          num = cc++;
+        }
         if (num < 0 || num > 127) { skipped++; continue; }
         if (pa.type !== 0 || o.setTypeIfOff) pa.type = 2;
         else leftOff++;
@@ -1128,7 +1169,7 @@
       }
     });
     toast(n + ' Push actions set' + (leftOff ? ' (' + leftOff + ' left Off)' : '') + (kept ? ', ' + kept + ' kept (navigation or other function)' : '') +
-      (skipped ? ', ' + skipped + ' skipped' : ''), skipped > 0);
+      (jumped ? ', ' + jumped + ' used CC(s) skipped' : '') + (skipped ? ', ' + skipped + ' skipped' : ''), skipped > 0);
   }
 
   function bulkField() {
