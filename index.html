@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>knobOx – E16 scene editor</title>
+<link rel="stylesheet" href="src/style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">knobOx <span class="muted">E16 scene editor</span></div>
+  <div class="actions">
+    <button class="btn" id="btnLibrary">Library</button>
+    <label class="btn primary">Open<input type="file" id="fileInput" accept=".oxie16,.json" hidden></label>
+    <button class="btn" id="btnDownload" disabled>Download</button>
+    <button class="btn" id="btnSend" disabled>Send to E16</button>
+    <span class="sep"></span>
+    <button class="btn" id="btnUndo" title="Ctrl+Z" disabled>Undo</button>
+    <button class="btn" id="btnRedo" title="Ctrl+Y" disabled>Redo</button>
+    <span class="sep"></span>
+    <button class="btn ghost" id="btnSettings">Settings</button>
+    <button class="btn ghost" id="btnInfo">Format info</button>
+  </div>
+  <div class="fileinfo" id="fileInfo"></div>
+</header>
+
+<main id="app">
+  <section id="library" class="library">
+    <div class="libcols">
+      <div class="libcol">
+        <div class="libhead">
+          <h2>On computer</h2>
+          <span class="muted" id="libFolderName"></span>
+          <span class="grow"></span>
+          <button class="btn small" id="libPick">Choose folder</button>
+          <button class="btn small" id="libRefresh" title="Reload folder">↻</button>
+        </div>
+        <div class="liblist" id="libFiles"></div>
+      </div>
+      <div class="libcol">
+        <div class="libhead">
+          <h2>On device</h2>
+          <span class="muted" id="libDeviceName"></span>
+          <span class="grow"></span>
+          <button class="btn small" id="libConnect">Connect E16</button>
+        </div>
+        <div class="liblist" id="libDevice"></div>
+      </div>
+    </div>
+    <p class="muted libhint">Drag a scene onto a device slot to send it, or a slot onto the computer list to save it. You can also drop an <code>.oxie16</code> file anywhere to open it. The OXI App must be closed while the editor talks to the E16.</p>
+    <button class="btn" id="btnRestore" hidden>Restore last session</button>
+  </section>
+
+  <section id="editor" hidden>
+    <nav class="tabs" id="mainTabs">
+      <button data-tab="pages" class="active">Pages</button>
+      <button data-tab="overview">CC overview</button>
+      <button data-tab="scene">Scene</button>
+    </nav>
+
+    <div class="tab" id="tab-pages">
+      <div class="pagebar" id="pageBar"></div>
+      <div class="pagesettings" id="pageSettings"></div>
+      <div class="workspace">
+        <div class="gridwrap">
+          <div class="selbar">
+            <button class="btn small" id="selAll">All</button>
+            <button class="btn small" id="selNone">None</button>
+            <span class="hint">Click selects, Ctrl/Shift extends, drag swaps (with Alt: copies)</span>
+          </div>
+          <div class="grid" id="encGrid"></div>
+          <div class="selbar">
+            <button class="btn small" id="btnCopy">Copy</button>
+            <button class="btn small" id="btnPaste">Paste</button>
+            <span class="hint" id="clipInfo"></span>
+          </div>
+        </div>
+        <aside class="side">
+          <nav class="tabs small" id="sideTabs">
+            <button data-side="edit" class="active">Encoder</button>
+            <button data-side="bulk">Bulk edit</button>
+          </nav>
+          <div id="side-edit" class="sidepane"></div>
+          <div id="side-bulk" class="sidepane" hidden></div>
+        </aside>
+      </div>
+    </div>
+
+    <div class="tab" id="tab-overview" hidden></div>
+    <div class="tab" id="tab-scene" hidden></div>
+  </section>
+</main>
+
+<dialog id="dlg">
+  <form method="dialog">
+    <div id="dlgBody"></div>
+    <div class="dlgfoot"><button class="btn">Close</button></div>
+  </form>
+</dialog>
+
+<div id="toast" class="toast" hidden></div>
+<script src="src/model.js"></script>
+<script src="src/sysex.js"></script>
+<script src="src/library.js"></script>
+<script src="src/app.js"></script>
+</body>
+</html>

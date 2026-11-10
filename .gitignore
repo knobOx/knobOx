@@ -1,0 +1,16 @@
+# Private material: own/third-party scenes, the OXI manual, USB captures
+local/
+
+# Third-party Claude skill (github.com/brentvatne/oxi-e16-config), installed locally
+.claude/skills/oxi-e16/
+
+# Personal Claude Code settings
+.claude/settings.local.json
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+desktop.ini
+.stfolder/
+.stignore
+*.sync-conflict-*

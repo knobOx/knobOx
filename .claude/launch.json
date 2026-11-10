@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "e16-editor",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "8716", "--bind", "127.0.0.1"],
+      "port": 8716
+    },
+    {
+      "name": "e16-editor-win",
+      "runtimeExecutable": "py",
+      "runtimeArgs": ["-m", "http.server", "8717", "--bind", "127.0.0.1"],
+      "port": 8717
+    }
+  ]
+}

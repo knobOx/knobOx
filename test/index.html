@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>E16 SysEx tests</title>
+<style>
+  body { font: 14px/1.5 system-ui, sans-serif; margin: 24px; background: #f6f7f9; color: #1b1f24; }
+  li.pass::marker { content: '✔ '; color: #1a7f37; }
+  li.fail::marker { content: '✘ '; color: #cf222e; }
+  code { background: #eaeef2; padding: 0 4px; border-radius: 3px; }
+</style>
+</head>
+<body>
+<h1>E16 SysEx tests</h1>
+<p>Compares <code>src/sysex.js</code> against USB captures of the OXI App (<code>test/fixtures/</code>). Serve the repository root over HTTP and open <code>/test/</code>.</p>
+<ul id="out"></ul>
+<script src="../src/sysex.js"></script>
+<script>
+(async () => {
+  const X = window.E16Sysex;
+  const out = document.getElementById('out');
+  const report = (name, ok, detail) => {
+    const li = document.createElement('li');
+    li.className = ok ? 'pass' : 'fail';
+    li.textContent = name + (detail ? ' – ' + detail : '');
+    out.append(li);
+  };
+  const bytes = async p => new Uint8Array(await (await fetch(p)).arrayBuffer());
+  const firstDiff = (a, b) => { for (let i = 0; i < Math.max(a.length, b.length); i++) if (a[i] !== b[i]) return i; return -1; };
+
+  try {
+    const text = await (await fetch('fixtures/calibration.oxie16')).text();
+    const scene = JSON.parse(text);
+
+    const up = X.toSyx(X.encodeScene(scene, 3));
+    const cap = await bytes('fixtures/capture_calibration_slot3.syx');
+    const d = firstDiff(up, cap);
+    report('Upload of calibration.oxie16 to slot 3 matches the OXI App byte for byte', d < 0, d < 0 ? '' : 'first difference at byte ' + d);
+
+    const parts = X.splitSyx(await bytes('fixtures/device_read_calibration_slot3.syx')).map(X.parseResponse);
+    report('Device responses pass the CRC check', parts.length === 13);
+    const decoded = X.decodeScene(parts[0].body, parts.slice(1).map(p => p.body), null);
+    report('Downloaded scene equals the file the OXI App wrote', JSON.stringify(decoded) === text);
+
+    const req = Array.from(X.request(1, 2, 0)).map(b => b.toString(16).padStart(2, '0')).join(' ');
+    report('Page read request matches the capture', req === 'f0 00 21 5b 02 01 07 01 02 00 00 00 00 00 00 f7', req);
+
+    report('ACK detection', X.isAck(X.ACK) && !X.isAck([0xF0, 0xF7]));
+  } catch (e) {
+    report('Test run', false, e.message);
+  }
+})();
+</script>
+</body>
+</html>
