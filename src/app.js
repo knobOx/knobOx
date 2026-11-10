@@ -124,7 +124,11 @@
   }
 
   // ---------- file io ----------
-  function loadText(text, name, original, dirty, handle) {
+  /*
+   * source describes where the scene came from and drives the save buttons:
+   *   { kind: 'device', slot, scriptMissing } | { kind: 'folder' } | { kind: 'file' } | { kind: 'session' }
+   */
+  function loadText(text, name, original, dirty, handle, source) {
     let obj;
     try { obj = JSON.parse(text); } catch (e) { toast('Not a valid JSON file: ' + e.message, true); return false; }
     const err = M.validateScene(obj);
@@ -133,6 +137,7 @@
     S.original = original ? JSON.parse(original) : M.deepClone(obj);
     S.fileName = name || 'scene.oxie16';
     S.fileHandle = handle || null;
+    S.source = source || (handle ? { kind: 'folder' } : { kind: 'file' });
     S.page = Math.min(S.page, obj.pages.length - 1);
     S.sel = new Set(); S.undo = []; S.redo = []; S.dirty = !!dirty;
     saveSession();
@@ -212,23 +217,53 @@
     ]);
   }
 
-  /* Save: write back to the scene folder file when there is one, otherwise download. */
-  async function download() {
+  function markSaved() { S.dirty = false; S.original = M.deepClone(S.scene); saveSession(); render(); }
+
+  /*
+   * Save to computer: write back to the folder file it came from; otherwise save it into the
+   * scene folder as <title>.oxie16 (asking before overwriting); without a folder, download it.
+   */
+  async function saveLocal() {
+    if (!S.scene) return;
     const text = JSON.stringify(S.scene);
     if (S.fileHandle) {
       try {
-        await window.E16Library.write(S.fileHandle, text);
-        S.dirty = false; S.original = M.deepClone(S.scene); saveSession(); render();
-        toast('Saved ' + S.fileName);
-        refreshFolder();
+        await L().write(S.fileHandle, text);
+        markSaved(); toast('Saved ' + S.fileName); refreshFolder();
         return;
-      } catch (e) { toast('Could not write ' + S.fileName + ': ' + e.message + ' – downloading instead.', true); }
+      } catch (e) { toast('Could not write ' + S.fileName + ': ' + e.message, true); return; }
     }
-    const blob = new Blob([text], { type: 'application/json' });
-    const a = el('a', { href: URL.createObjectURL(blob), download: S.fileName });
-    document.body.append(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-    S.dirty = false; saveSession(); renderTop();
+    if (S.lib.dir) {
+      const name = S.source && S.source.kind === 'device' ? L().fileNameFor(S.scene.title) : S.fileName;
+      const res = await saveToFolder(S.scene, name, S.source && S.source.scriptMissing, 'the scene in the editor');
+      if (!res) return;
+      S.fileHandle = res.handle; S.fileName = name;
+      S.source = Object.assign({}, S.source, { kind: S.source && S.source.kind === 'device' ? 'device' : 'folder', savedTo: name });
+      markSaved(); toast('Saved ' + name + res.note, !!res.warn); refreshFolder();
+      return;
+    }
+    downloadText(S.fileName, text);
+    markSaved(); toast('Downloaded ' + S.fileName);
+  }
+
+  /* Save to E16: back to the slot it was read from, otherwise ask for a slot. */
+  async function saveDevice() {
+    if (!S.scene) return;
+    if (S.source && S.source.kind === 'device') {
+      const ok = await sendToSlot(S.scene, S.source.slot, S.scene.title);
+      if (ok) markSaved();
+      return;
+    }
+    sendDialog();
+  }
+
+  /* Close the scene and go back to the library. */
+  function closeScene() {
+    if (!S.scene || !confirmDiscard()) return;
+    S.scene = null; S.original = null; S.fileHandle = null; S.source = null;
+    S.dirty = false; S.undo = []; S.redo = []; S.sel = new Set();
+    S.view = 'library';
+    render();
   }
 
   // ---------- MIDI connection (shared by library and send dialog) ----------
@@ -311,13 +346,37 @@
     return deviceOp('Reading slot ' + slot, async (midi, report) => {
       const scene = await readSlot(slot, report);
       S.page = 0;
-      loadText(JSON.stringify(scene), L().fileNameFor(scene.title), null, false, null);
-      toast(scene.scriptMissing ? scriptMissingText(scene) : 'Loaded "' + scene.title + '" from slot ' + slot + ' (not saved yet)', scene.scriptMissing);
+      loadText(JSON.stringify(scene), L().fileNameFor(scene.title), null, false, null,
+        { kind: 'device', slot, scriptMissing: !!scene.scriptMissing });
+      toast(scene.scriptMissing ? scriptMissingText(scene) : 'Loaded "' + scene.title + '" from E16 slot ' + slot, scene.scriptMissing);
     });
   }
   function scriptMissingText(scene) {
     return '"' + scene.title + '" uses the script "' + scene.code.scriptName + '", which cannot be read from the E16 yet. ' +
       'Pages and settings were loaded; the script itself is missing, so this copy cannot be sent back.';
+  }
+
+  /*
+   * Write a scene into the scene folder as `name`, asking before overwriting. When the scene's script
+   * could not be read from the device, the script of an existing file with the same script name is kept.
+   * Returns { handle, note, warn } or null if cancelled.
+   */
+  async function saveToFolder(scene, name, scriptMissing, label) {
+    const existing = S.lib.files.find(f => f.name.toLowerCase() === name.toLowerCase());
+    let note = '', warn = false;
+    if (existing) {
+      let old = null;
+      try { old = JSON.parse(await L().read(existing.handle)); } catch (e) { /* unreadable: plain overwrite */ }
+      const keepScript = scriptMissing && old && old.code && old.code.code && old.code.scriptName === scene.code.scriptName;
+      const w = scriptMissing && !keepScript ? '\n\nWarning: the script cannot be read from the E16, the saved file will not contain it.' : '';
+      if (!confirm(name + ' already exists. Overwrite it with ' + label + '?' + (keepScript ? '\n\nThe script "' + scene.code.scriptName + '" from the existing file is kept.' : '') + w)) return null;
+      if (keepScript) { scene.code.code = old.code.code; scene.code.fullScript = old.code.fullScript || ''; note = ' (script kept from the existing file)'; }
+      else if (scriptMissing) { note = ' – without its script'; warn = true; }
+    } else if (scriptMissing) {
+      note = ' – without its script, which cannot be read from the E16 yet'; warn = true;
+    }
+    const handle = await L().save(S.lib.dir, name, JSON.stringify(scene));
+    return { handle, note, warn };
   }
 
   /* Save a slot into the scene folder, or as a browser download when no folder is available. */
@@ -330,21 +389,9 @@
         toast(scene.scriptMissing ? scriptMissingText(scene) : 'Downloaded slot ' + slot + ' as ' + name, scene.scriptMissing);
         return;
       }
-      const existing = S.lib.files.find(f => f.name.toLowerCase() === name.toLowerCase());
-      let note = '';
-      if (existing) {
-        let old = null;
-        try { old = JSON.parse(await L().read(existing.handle)); } catch (e) { /* unreadable: plain overwrite */ }
-        // Keep the script from the local file instead of overwriting it with a script-less copy.
-        const keepScript = scene.scriptMissing && old && old.code && old.code.code && old.code.scriptName === scene.code.scriptName;
-        const warn = scene.scriptMissing && !keepScript ? '\n\nWarning: the script cannot be read from the E16, the saved file will not contain it.' : '';
-        if (!confirm(name + ' already exists. Overwrite it with slot ' + slot + '?' + (keepScript ? '\n\nThe script "' + scene.code.scriptName + '" from the existing file is kept.' : '') + warn)) return;
-        if (keepScript) { scene.code.code = old.code.code; scene.code.fullScript = old.code.fullScript || ''; note = ' (script kept from the existing file)'; }
-      } else if (scene.scriptMissing) {
-        note = ' – without its script, which cannot be read from the E16 yet';
-      }
-      await L().save(S.lib.dir, name, JSON.stringify(scene));
-      toast('Saved slot ' + slot + ' as ' + name + note, scene.scriptMissing && !note.includes('kept'));
+      const res = await saveToFolder(scene, name, scene.scriptMissing, 'slot ' + slot);
+      if (!res) return;
+      toast('Saved slot ' + slot + ' as ' + name + res.note, res.warn);
       await refreshFolder();
     });
   }
@@ -356,7 +403,8 @@
     return deviceOp('Sending to slot ' + slot, async (midi, report) => {
       await X().sendScene(X().encodeScene(scene, slot), midi, report);
       if (S.lib.slots) S.lib.slots[slot - 1] = { slot, title: scene.title, color: scene.color, scriptName: (scene.code || {}).scriptName || '' };
-      toast('Sent "' + scene.title + '" to slot ' + slot);
+      toast('Saved "' + scene.title + '" to E16 slot ' + slot);
+      return true;
     });
   }
   async function sendFileToSlot(name, slot) {
@@ -479,20 +527,50 @@
     if (lib) { renderLibrary(); return; }
     document.querySelectorAll('#mainTabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === S.tab));
     ['pages', 'overview', 'scene'].forEach(t => { $('#tab-' + t).hidden = t !== S.tab; });
+    renderSourceBar();
     if (S.tab === 'pages') { renderPageBar(); renderPageSettings(); renderGrid(); renderSide(); }
     if (S.tab === 'overview') renderOverview();
     if (S.tab === 'scene') renderScene();
   }
 
+  /* Where the scene in the editor comes from, shown prominently above the tabs. */
+  function sourceText() {
+    const src = S.source || {};
+    if (src.kind === 'device') return ['E16', 'slot ' + src.slot + ' on the E16' + (src.savedTo ? ' · copy saved as ' + src.savedTo : '')];
+    if (src.kind === 'folder') return ['Folder', S.fileName + ' in ' + (S.lib.dir ? S.lib.dir.name : 'the scene folder')];
+    if (src.kind === 'session') return ['Restored', S.fileName + ' (from the last session)'];
+    return ['File', S.fileName + ' (opened from disk; saving downloads a copy or uses the scene folder)'];
+  }
+  function renderSourceBar() {
+    const bar = $('#sourceBar');
+    if (!S.scene) { bar.replaceChildren(); return; }
+    const [tag, text] = sourceText();
+    bar.className = 'sourcebar src-' + ((S.source && S.source.kind) || 'file');
+    bar.replaceChildren(...[
+      el('i', { class: 'libcolor', style: { background: M.colorCss(S.scene.color) } }),
+      el('span', { class: 'srctag' }, tag),
+      el('b', { class: 'srctitle' }, S.scene.title || '(untitled)'),
+      el('span', { class: 'muted' }, text),
+      S.dirty ? el('span', { class: 'badge warn' }, 'unsaved changes') : null,
+      S.source && S.source.scriptMissing ? el('span', { class: 'badge warn', title: 'The script cannot be read from the E16 yet' }, 'script not loaded') : null,
+    ].filter(Boolean));
+  }
+
   function renderTop() {
-    $('#btnDownload').disabled = !S.scene;
-    $('#btnDownload').textContent = S.fileHandle ? 'Save' : 'Download';
-    $('#btnDownload').title = S.fileHandle ? 'Save to ' + S.fileName + ' in the scene folder (Ctrl+S)' : 'Download as .oxie16 (Ctrl+S)';
-    $('#btnSend').disabled = !S.scene;
+    const has = !!S.scene, src = S.source || {};
+    $('#btnSaveLocal').disabled = !has;
+    $('#btnSaveLocal').title = S.fileHandle ? 'Save to ' + S.fileName + ' (Ctrl+S)'
+      : S.lib.dir ? 'Save into the scene folder (Ctrl+S)' : 'Download as .oxie16 (Ctrl+S)';
+    $('#btnSaveDevice').disabled = !has || !!src.scriptMissing;
+    $('#btnSaveDevice').textContent = src.kind === 'device' ? 'Save to E16 slot ' + src.slot : 'Save to E16 …';
+    $('#btnSaveDevice').title = src.scriptMissing ? 'Disabled: the script of this scene could not be read from the E16'
+      : src.kind === 'device' ? 'Write the scene back to slot ' + src.slot : 'Choose a slot and send the scene to the E16';
+    $('#btnClose').disabled = !has;
     $('#btnLibrary').textContent = S.view === 'library' && S.scene ? 'Back to editor' : 'Library';
     $('#btnUndo').disabled = !S.undo.length;
     $('#btnRedo').disabled = !S.redo.length;
-    $('#fileInfo').textContent = S.scene ? S.fileName + (S.dirty ? ' (modified)' : '') : '';
+    $('#fileInfo').textContent = '';
+    if (S.scene && S.view !== 'library') renderSourceBar();
   }
 
   function renderPageBar() {
@@ -1026,8 +1104,9 @@
     $('#libPick').addEventListener('click', pickFolder);
     $('#libRefresh').addEventListener('click', refreshFolder);
     $('#libConnect').addEventListener('click', listSlots);
-    $('#btnDownload').addEventListener('click', download);
-    $('#btnSend').addEventListener('click', sendDialog);
+    $('#btnSaveLocal').addEventListener('click', saveLocal);
+    $('#btnSaveDevice').addEventListener('click', saveDevice);
+    $('#btnClose').addEventListener('click', closeScene);
     $('#btnUndo').addEventListener('click', undo);
     $('#btnRedo').addEventListener('click', redo);
     $('#btnSettings').addEventListener('click', settingsDialog);
@@ -1057,7 +1136,7 @@
       const k = e.key.toLowerCase();
       if (k === 'z' && !inField) { e.preventDefault(); e.shiftKey ? redo() : undo(); }
       else if (k === 'y' && !inField) { e.preventDefault(); redo(); }
-      else if (k === 's') { e.preventDefault(); download(); }
+      else if (k === 's') { e.preventDefault(); saveLocal(); }
       else if (S.tab === 'pages' && !inField) {
         if (k === 'c') { e.preventDefault(); copySel(); }
         else if (k === 'v') { e.preventDefault(); pasteSel(); }
@@ -1072,7 +1151,7 @@
         const btn = $('#btnRestore');
         btn.hidden = false;
         btn.textContent = 'Restore last session (' + sess.name + (sess.dirty ? ', unsaved' : '') + ')';
-        btn.addEventListener('click', () => loadText(sess.json, sess.name, sess.original, sess.dirty));
+        btn.addEventListener('click', () => loadText(sess.json, sess.name, sess.original, sess.dirty, null, { kind: 'session' }));
       }
     } catch (e) { /* storage unavailable */ }
     render();

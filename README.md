@@ -50,7 +50,8 @@ Notes:
 - **On computer:** choose a scene folder once; the browser remembers it. If the folder has a `Scenes` subfolder (the OXI App's storage layout), that subfolder is used, so you can point the editor at the same folder as the OXI App.
 - **On device:** connect the E16 and list all 16 slots with name, color and script.
 - Drag a file onto a slot to send it, or a slot onto the file list to save it. Each row also has buttons for **Edit**, **Save** and **Send current**.
-- Scenes opened from the folder are saved back to the same file (**Save**, Ctrl+S); other scenes are downloaded.
+- A bar above the editor always shows what you're editing and where it comes from (E16 slot, scene folder or a file).
+- **Save to computer** (Ctrl+S) writes back to the file the scene came from, or into the scene folder; without a folder it downloads. **Save to E16** writes a scene read from the device back to its slot, or asks for a slot. **Close** goes back to the library.
 - Nothing is overwritten silently: saving a slot over an existing file always asks first. If the existing file has the matching Lua script, that script is kept.
 - **Scripts on the device:** reading a script back from the E16 isn't supported yet (the request is still unknown). Such slots load without their script and can't be sent back, so the script on the device can't be erased by accident.
 

@@ -13,8 +13,9 @@
   <div class="actions">
     <button class="btn" id="btnLibrary">Library</button>
     <label class="btn primary">Open<input type="file" id="fileInput" accept=".oxie16,.json" hidden></label>
-    <button class="btn" id="btnDownload" disabled>Download</button>
-    <button class="btn" id="btnSend" disabled>Send to E16</button>
+    <button class="btn" id="btnSaveLocal" disabled>Save to computer</button>
+    <button class="btn" id="btnSaveDevice" disabled>Save to E16</button>
+    <button class="btn" id="btnClose" disabled>Close</button>
     <span class="sep"></span>
     <button class="btn" id="btnUndo" title="Ctrl+Z" disabled>Undo</button>
     <button class="btn" id="btnRedo" title="Ctrl+Y" disabled>Redo</button>
@@ -53,6 +54,7 @@
   </section>
 
   <section id="editor" hidden>
+    <div class="sourcebar" id="sourceBar"></div>
     <nav class="tabs" id="mainTabs">
       <button data-tab="pages" class="active">Pages</button>
       <button data-tab="overview">CC overview</button>
