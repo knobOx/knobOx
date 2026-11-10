@@ -151,7 +151,7 @@ JSON: scene → `pages[12]` → `encoders[16]` → `turn_actions[2]` (Dest 1, De
 | `push_action.type` | 0 Off, 1 Note, 2 CC, 3 PC, 4 Set to Default, 5 AT, 6 Page, 7 Record, 8 Play/Pause Rec, 12 Script | 0/2/6 verified, 1–8 community docs, 12 used with `scriptId` in script scenes |
 | `push_action.mode` | 0 Press only, 1 Press + Release, 2 Toggle | 0 and 2 verified, 1 assumed |
 | `nr1` | CC number / note / PC number; LSB for NRPN | community docs |
-| `nr2` | MSB for NRPN, LSB for CC14, target page (0-based) for Page; unused for CC, PC, PB and AT (the OXI App leaves old values there, the editor hides the field and keeps the value) | community docs, own scenes |
+| `nr2` | MSB for NRPN, LSB for CC14, target page (0-based) for Page; unused for CC, PC, PB and AT (the OXI App leaves old values there, the editor hides the field and keeps the value) | target page verified on the device, rest community docs and own scenes |
 | `lower` / `upper` | Min/Max (turn), press/release value (push), navigation options (Page) | |
 | `defaultValue` | Default (anchor) value, turn actions only | |
 | `channel` (action) | 0 = page channel, 1–16 = MIDI channel | verified |

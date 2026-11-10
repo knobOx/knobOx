@@ -16,11 +16,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Sending to the E16 on Linux: the 9 KB script block never got a reply because the ALSA sequencer's 4 KB MIDI output buffer drops the rest of it. The error now explains how to enlarge the buffer (README has the commands).
 - After such a failed block the E16 kept waiting for its end and swallowed the first message of the next transfer, so a following upload could look successful but store broken data. knobOx now ends the broken block right after the timeout.
 - Sending to the E16: the wait for the device's reply grows with the message size (about 5 s for the 8 KB script block instead of 3 s), and the error names the block size and wait time.
-- If only the script block gets no reply, knobOx reads the scene back from the slot. When settings and pages match and the scene has no script, the upload counts as done with a note instead of an error.
+- If only the script block gets no reply, knobOx reads the scene back from the slot. When settings and pages match and the scene has no script, the upload counts as done with a note instead of an error. The header's last-page and last-preset fields are left out of the comparison, since the device may update them itself. Checked on a real E16.
 - Paste no longer lands on encoder 1 when nothing is selected (e.g. after switching pages); it asks for a target instead. With several encoders selected, a single copied encoder fills all of them, and a different count is pasted starting at the encoder clicked last instead of the lowest one.
 
 ### Changed
 
+- Push "Page": the target page (`nr2`) is verified on the device, the list no longer marks it with "(?)".
 - The encoder editor hides `nr2` for types that don't use it (CC, PC, PB, AT and Off); the stored value is kept.
 - After a browser restart, the library shows the remembered scene folder with a button to open it again, and explains the browser's one-time access prompt.
 

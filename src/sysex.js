@@ -389,10 +389,13 @@
     const sess = makeSession(ports, timeoutMs);
     try {
       await sess.open();
+      // Header bytes 53/54 (recentPage, recentPreset) are navigation state the device may update on its own.
+      const volatile = cmd => cmd === CMD_HEADER ? [53, 54] : [];
       for (const m of msgs) {
         const sent = unpack7(Array.from(m.slice(10, m.length - 1))).slice(8, -4);
         const got = await fetchBlock(sess, m[7], m[8], m[9], 'check');
-        if (got.length !== sent.length || got.some((b, k) => b !== sent[k])) return false;
+        const skip = volatile(m[7]);
+        if (got.length !== sent.length || got.some((b, k) => b !== sent[k] && !skip.includes(k))) return false;
       }
       return true;
     } finally { sess.close(); }

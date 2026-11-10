@@ -179,7 +179,8 @@
       f.push({ key: 'nr1', label: n1, kind: 'num', min: 0, max: 127, note: t === 1 });
       if (t === 6) {
         const opts = {};
-        (pages || []).forEach((p, i) => { opts[i] = { label: 'P' + (i + 1) + ' ' + p.title }; });
+        // nr2 = target page, 0-based (verified on the device).
+        (pages || []).forEach((p, i) => { opts[i] = { label: 'P' + (i + 1) + ' ' + p.title, sure: true }; });
         f.push({ key: 'nr2', label: 'Target page', kind: 'select', options: opts });
       } else if (PUSH_NR2_UNUSED.includes(t)) {
         hidden.add('nr2');
