@@ -70,7 +70,8 @@
     t.className = 'toast' + (isErr ? ' err' : '');
     t.hidden = false;
     clearTimeout(toast._t);
-    toast._t = setTimeout(() => { t.hidden = true; }, 3200);
+    // Long error texts (e.g. the Linux/Flatpak hint) stay up long enough to read.
+    toast._t = setTimeout(() => { t.hidden = true; }, isErr ? Math.max(3200, msg.length * 70) : 3200);
   }
   function optionsFor(table, current) {
     const opts = Object.entries(table).map(([v, d]) =>
@@ -171,7 +172,7 @@
       portSel.replaceChildren(...(outs.length ? outs.map(p => el('option', { value: p.id, selected: best && p.id === best.id }, p.name)) : [el('option', null, 'no MIDI outputs')]));
       portSel.disabled = !outs.length;
       btnGo.disabled = !best || problems.length > 0;
-      status.textContent = best ? 'Connected to "' + best.name + '".' : 'No E16 found. Check USB and close the OXI App.';
+      status.textContent = best ? 'Connected to "' + best.name + '".' : notFoundMsg();
     }
     btnConnect.addEventListener('click', async () => {
       try { await connectMidi(); } catch (e) { status.textContent = e.message; }
@@ -231,7 +232,7 @@
         await L().write(S.fileHandle, text);
         markSaved(); toast('Saved ' + S.fileName); refreshFolder();
         return;
-      } catch (e) { toast('Could not write ' + S.fileName + ': ' + e.message, true); return; }
+      } catch (e) { toast('Could not write ' + S.fileName + ': ' + e.message + (onLinux() ? ' ' + FOLDER_FLATPAK : ''), true); return; }
     }
     if (S.lib.dir) {
       const name = S.source && S.source.kind === 'device' ? L().fileNameFor(S.scene.title) : S.fileName;
@@ -267,6 +268,22 @@
   }
 
   // ---------- MIDI connection (shared by library and send dialog) ----------
+  /* Shown when Web MIDI works but no E16 port shows up. On Linux the usual cause is a Flatpak browser:
+     Chromium needs /run/udev to list hardware MIDI ports, and the Flatpak sandbox hides it. */
+  const onLinux = () => /Linux/.test(navigator.userAgent) && !/Android/.test(navigator.userAgent);
+  /* Folder access in a Flatpak browser: the sandbox only sees a few folders (e.g. Downloads), so other
+     scene folders are missing in the picker, look empty or can't be written. */
+  const FOLDER_FLATPAK = 'Linux with a Flatpak browser? If your folder is missing in the picker, looks empty or cannot be saved to, '
+    + 'give the browser access to it, then fully restart the browser: flatpak override --user --filesystem=~/path/to/scenes com.brave.Browser';
+  const flatpakNote = () => onLinux() ? [el('p', { class: 'muted pad' }, FOLDER_FLATPAK)] : [];
+  function notFoundMsg() {
+    let m = 'No E16 found. Check USB and close the OXI App.';
+    if (onLinux()) {
+      m += ' Linux with a Flatpak browser (e.g. Brave or Chromium from Flathub)? Allow it to see MIDI devices, then fully restart the browser: '
+        + 'flatpak override --user --filesystem=/run/udev:ro com.brave.Browser (or org.chromium.Chromium).';
+    }
+    return m;
+  }
   async function connectMidi() {
     const X = window.E16Sysex;
     if (!S.midi) {
@@ -275,7 +292,7 @@
       access.onstatechange = () => { updatePorts(); renderLibrary(); };
     }
     updatePorts();
-    if (!S.midi.output) throw new Error('No E16 found. Check USB and close the OXI App.');
+    if (!S.midi.output) throw new Error(notFoundMsg());
     return S.midi;
   }
   function updatePorts() {
@@ -311,7 +328,7 @@
   async function refreshFolder() {
     if (!S.lib.dir) { renderLibrary(); return; }
     try { S.lib.files = await L().list(S.lib.dir); }
-    catch (e) { S.lib.files = []; toast('Could not read the folder: ' + e.message, true); }
+    catch (e) { S.lib.files = []; toast('Could not read the folder: ' + e.message + (onLinux() ? ' ' + FOLDER_FLATPAK : ''), true); }
     renderLibrary();
   }
   async function pickFolder() {
@@ -322,7 +339,7 @@
       }
       S.lib.dir = await L().pickFolder(); S.lib.pending = null;
       await refreshFolder();
-    } catch (e) { if (e.name !== 'AbortError') toast(e.message, true); }
+    } catch (e) { if (e.name !== 'AbortError') toast(e.message + (onLinux() ? ' ' + FOLDER_FLATPAK : ''), true); }
   }
   async function openFromFolder(f) {
     if (!confirmDiscard()) return;
@@ -381,18 +398,53 @@
 
   /* Save a slot into the scene folder, or as a browser download when no folder is available. */
   function saveSlotToFolder(slot) {
-    return deviceOp('Downloading slot ' + slot, async (midi, report) => {
-      const scene = await readSlot(slot, report);
-      const name = L().fileNameFor(scene.title);
-      if (!S.lib.dir) {
-        downloadText(name, JSON.stringify(scene));
-        toast(scene.scriptMissing ? scriptMissingText(scene) : 'Downloaded slot ' + slot + ' as ' + name, scene.scriptMissing);
-        return;
-      }
-      const res = await saveToFolder(scene, name, scene.scriptMissing, 'slot ' + slot);
-      if (!res) return;
-      toast('Saved slot ' + slot + ' as ' + name + res.note, res.warn);
-      await refreshFolder();
+    return deviceOp('Downloading slot ' + slot, (midi, report) => saveSlot(slot, report));
+  }
+  /* Read a slot and save it. Returns false if the user cancelled. Call inside deviceOp. */
+  async function saveSlot(slot, report) {
+    const scene = await readSlot(slot, report);
+    const name = L().fileNameFor(scene.title);
+    if (!S.lib.dir) {
+      downloadText(name, JSON.stringify(scene));
+      toast(scene.scriptMissing ? scriptMissingText(scene) : 'Downloaded slot ' + slot + ' as ' + name, scene.scriptMissing);
+      return true;
+    }
+    const res = await saveToFolder(scene, name, scene.scriptMissing, 'slot ' + slot);
+    if (!res) return false;
+    toast('Saved slot ' + slot + ' as ' + name + res.note, res.warn);
+    await refreshFolder();
+    return true;
+  }
+
+  /*
+   * "Delete" a slot: the E16 has no known delete command, so the slot is overwritten with the
+   * factory-empty scene ("S. <slot>"), byte-identical to what an unused slot holds.
+   */
+  function deleteSlotDialog(slot) {
+    const cur = S.lib.slots && S.lib.slots[slot - 1];
+    const title = cur ? cur.title : 'S. ' + slot;
+    const close = () => $('#dlg').close();
+    const where = S.lib.dir ? 'to the scene folder' : 'as a download';
+    showDialog([
+      el('h2', null, 'Delete slot ' + slot + '?'),
+      el('p', null, '"' + title + '" will be removed from the E16. The slot becomes empty ("S. ' + slot + '"). This cannot be undone on the device.'),
+      cur && cur.scriptName ? el('p', { class: 'muted' }, 'Note: the script "' + cur.scriptName + '" cannot be read from the E16 yet, so a saved copy will not contain it.') : null,
+      el('div', { class: 'dlgactions' },
+        el('button', { class: 'btn primary', type: 'button', onclick: () => { close(); deleteSlot(slot, true); } }, 'Save ' + where + ', then delete'),
+        el('button', { class: 'btn danger', type: 'button', onclick: () => { close(); deleteSlot(slot, false); } }, 'Delete without saving'),
+        el('button', { class: 'btn', type: 'button', onclick: close }, 'Cancel')),
+    ].filter(Boolean), true);
+  }
+  function deleteSlot(slot, saveFirst) {
+    return deviceOp('Deleting slot ' + slot, async (midi, report) => {
+      const cur = S.lib.slots && S.lib.slots[slot - 1];
+      if (saveFirst && !(await saveSlot(slot, report))) { toast('Not deleted: slot ' + slot + ' was not saved.', true); return; }
+      const empty = X().emptyScene(slot);
+      await X().sendScene(X().encodeScene(empty, slot), midi, report);
+      if (S.lib.slots) S.lib.slots[slot - 1] = { slot, title: empty.title, color: empty.color, scriptName: '' };
+      // This toast replaces the one from saveSlot, so repeat its script warning.
+      const noScript = saveFirst && cur && cur.scriptName;
+      toast('Slot ' + slot + ' deleted' + (noScript ? '. The saved copy does not contain the script "' + cur.scriptName + '".' : ''), !!noScript);
     });
   }
   function sendToSlot(scene, slot, label) {
@@ -433,8 +485,10 @@
           : el('p', null, h.browser + ' does not support the File System Access API. Use Chrome, Chromium, Edge or Brave (with the flag enabled) to work with a scene folder.'),
         el('p', { class: 'muted' }, 'Until then you can still open files with "Open" and download slots with "Save".')));
     }
-    else if (!S.lib.dir) files.replaceChildren(el('p', { class: 'muted pad' }, 'Choose the folder that holds your .oxie16 files, e.g. the OXI App storage folder. A "Scenes" subfolder is used automatically.'));
-    else if (!S.lib.files.length) files.replaceChildren(el('p', { class: 'muted pad' }, 'No .oxie16 files in this folder.'));
+    else if (!S.lib.dir) files.replaceChildren(el('p', { class: 'muted pad' }, 'Choose the folder that holds your .oxie16 files, e.g. the OXI App storage folder. A "Scenes" subfolder is used automatically.'),
+      ...flatpakNote());
+    else if (!S.lib.files.length) files.replaceChildren(el('p', { class: 'muted pad' }, 'No .oxie16 files in this folder.'),
+      ...flatpakNote());
     else {
       files.replaceChildren(...S.lib.files.map(f => el('div', {
         class: 'librow' + (S.fileHandle && S.fileName === f.name ? ' current' : ''), draggable: 'true',
@@ -480,7 +534,8 @@
       el('span', { class: 'libname' }, s.title, s.scriptName ? el('span', { class: 'muted' }, ' · ' + s.scriptName) : null),
       el('button', { class: 'btn small', disabled: S.lib.busy, onclick: () => openSlot(s.slot) }, 'Edit'),
       el('button', { class: 'btn small', disabled: S.lib.busy, title: S.lib.dir ? 'Save to the scene folder' : 'Download as .oxie16', onclick: () => saveSlotToFolder(s.slot) }, 'Save'),
-      S.scene ? el('button', { class: 'btn small', disabled: S.lib.busy, title: 'Send the scene open in the editor to this slot', onclick: () => sendToSlot(S.scene, s.slot, S.scene.title) }, 'Send current') : null);
+      S.scene ? el('button', { class: 'btn small', disabled: S.lib.busy, title: 'Send the scene open in the editor to this slot', onclick: () => sendToSlot(S.scene, s.slot, S.scene.title) }, 'Send current') : null,
+      el('button', { class: 'btn small danger', disabled: S.lib.busy, title: 'Delete this scene from the E16 (the slot becomes empty)', 'aria-label': 'Delete slot ' + s.slot, onclick: () => deleteSlotDialog(s.slot) }, '✕'));
       return r;
     }));
   }
@@ -1079,8 +1134,9 @@
   }
 
   // ---------- dialogs ----------
-  function showDialog(nodes) {
+  function showDialog(nodes, ownButtons) {
     $('#dlgBody').replaceChildren(...nodes);
+    $('#dlg .dlgfoot').hidden = !!ownButtons; // dialogs with their own buttons hide "Close"
     $('#dlg').showModal();
   }
   function settingsDialog() {

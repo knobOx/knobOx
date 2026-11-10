@@ -79,6 +79,8 @@ u8 0x14 | u16 BE bodyLen | u8 0x00 | body | u32 BE CRC
 - **Download:** header, then pages 0–11. How a script is read back is **not known yet**: the E16 does not answer a `07 04` request. The editor tries it once for scenes with a script name; if there is no answer, the scene is loaded without code and refused for upload, so the script on the device cannot be erased by accident.
 - After a download the OXI App also sent `F0 00 21 5B 02 01 07 52 F7`. Its meaning is unknown; the editor does not send it.
 
+- **Empty slot / delete:** no delete command is known. An unused slot holds a default scene that is identical for every slot except the scene title (`S. 6`, `S. 16`), the page titles (`P. 1` … `P. 9`, `P.10` … `P.12`) and each page's MIDI channel (1–12); its script block is empty. The editor "deletes" a slot by uploading exactly this scene (`emptyScene()` in `src/sysex.js`, read from slots 6 and 16 of a device).
+
 ## Body layouts
 
 Multi-byte values are **big-endian**. Strings are Latin-1, zero-padded, not necessarily zero-terminated.

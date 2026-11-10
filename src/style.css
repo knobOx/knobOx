@@ -21,7 +21,7 @@
   :root:not([data-theme="dark"]) {
     --bg: #f3f4f6; --panel: #ffffff; --panel2: #eef0f3; --line: #d5d9df;
     --text: #1b1f24; --muted: #5f6873; --accent: #1f6fd1; --accent-ink: #ffffff;
-    --used: #5b9be0; --multi: #e7962f; --free: #e4e7eb; --sel: #1f6fd1;
+    --used: #5b9be0; --multi: #e7962f; --free: #e4e7eb; --sel: #1f6fd1; --danger: #c62828;
     color-scheme: light;
   }
 }
@@ -48,6 +48,10 @@ code { font-family: ui-monospace, monospace; font-size: 12px; }
 .actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .sep { width: 1px; height: 20px; background: var(--line); }
 .fileinfo { margin-left: auto; color: var(--muted); font-size: 13px; }
+.ghlink { display: inline-flex; color: var(--muted); padding: 4px; border-radius: 6px; }
+.ghlink:hover { color: var(--text); background: var(--panel2); }
+.ghlink:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+@media (max-width: 1100px) { .brand > .muted { display: none; } }
 
 .btn {
   display: inline-flex; align-items: center; gap: 4px; cursor: pointer; user-select: none;
@@ -59,6 +63,8 @@ code { font-family: ui-monospace, monospace; font-size: 12px; }
 .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .btn.ghost { background: transparent; }
 .btn.small { padding: 2px 8px; font-size: 12px; }
+.btn.danger { color: var(--danger); }
+.btn.danger:hover:not(:disabled) { border-color: var(--danger); }
 
 input, select {
   background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 5px;
@@ -227,10 +233,12 @@ dialog::backdrop { background: rgba(0, 0, 0, .5); }
 dialog ul { padding-left: 18px; }
 dialog li { margin: 4px 0; }
 .dlgfoot { text-align: right; margin-top: 12px; }
+.dlgactions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 
 .toast {
   position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--panel2); border: 1px solid var(--line);
   padding: 8px 14px; border-radius: 8px; box-shadow: 0 4px 18px rgba(0, 0, 0, .35); z-index: 60;
+  max-width: min(640px, calc(100vw - 32px)); overflow-wrap: anywhere;
 }
 .toast.err { border-color: var(--warn); color: var(--warn); }
 

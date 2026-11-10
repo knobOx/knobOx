@@ -2,6 +2,8 @@
 
 **knobOx** is an unofficial, browser-based editor for **OXI E16** scene files (`.oxie16`) that can also transfer scenes to and from the device over USB-MIDI. It runs entirely in the browser: no build step, no server-side code, nothing is uploaded anywhere.
 
+![knobOx editor: page grid with encoder names, CCs and push functions](docs/screenshots/editor-pages.png)
+
 ## Why this exists
 
 Hi! I own an OXI E16 and an OXI One MK2, and right now the E16 is the one that matters for this. Here's what bugged me:
@@ -44,14 +46,32 @@ Notes:
 - Firefox and Safari can't open local folders (no File System Access API). In Brave, enable it under `brave://flags/#file-system-access-api`. The editor shows these hints itself.
 - Close the OXI App while the editor talks to the E16. On Windows, only one program can use the MIDI port at a time.
 - On Linux the E16 works as a class-compliant USB-MIDI device via ALSA, no drivers or udev rules needed.
+- **Linux + Flatpak browser ("No E16 found")**: Brave or Chromium installed from Flathub can't see USB-MIDI devices by default. The OS sees the E16 (`lsusb`, `aconnect -l`), but Chromium needs `/run/udev` to list hardware MIDI ports, and the sandbox hides it. Allow read access, then fully quit and restart the browser:
+
+  ```bash
+  flatpak override --user --filesystem=/run/udev:ro com.brave.Browser   # or org.chromium.Chromium
+  flatpak kill com.brave.Browser
+  ```
+
+  Undo with `flatpak override --user --reset com.brave.Browser`. Natively installed browsers (distro packages) don't need this. The editor shows this hint itself when no E16 is found on Linux.
+- **Linux + Flatpak browser, scene folder**: the sandbox only sees a few folders (e.g. Downloads). If your scene folder is missing in the folder picker, looks empty or can't be saved to, give the browser access to that folder and restart it:
+
+  ```bash
+  flatpak override --user --filesystem=~/path/to/scenes com.brave.Browser
+  ```
+
+  Use your real folder path; `--filesystem=home` would open the whole home folder and isn't needed. The editor shows this hint on Linux next to the folder list and with folder errors.
 
 ## Features
 
 ### Library (like the OXI App's scene manager)
 
+![Library: scene folder on the left, the 16 slots of the connected E16 on the right](docs/screenshots/library.png)
+
 - **On computer:** choose a scene folder once; the browser remembers it. If the folder has a `Scenes` subfolder (the OXI App's storage layout), that subfolder is used, so you can point the editor at the same folder as the OXI App.
 - **On device:** connect the E16 and list all 16 slots with name, color and script.
-- Drag a file onto a slot to send it, or a slot onto the file list to save it. Each row also has buttons for **Edit**, **Save** and **Send current**.
+- Drag a file onto a slot to send it, or a slot onto the file list to save it. Each row also has buttons for **Edit**, **Save**, **Send current** and **✕ (delete)**.
+- **Delete a scene** from the E16: asks first, optionally saves it to the scene folder (or as a download) before deleting. The E16 has no known delete command, so the slot is overwritten with the factory-empty scene ("S. 6" etc.), byte-identical to an unused slot.
 - A bar above the editor always shows what you're editing and where it comes from (E16 slot, scene folder or a file).
 - **Save to computer** (Ctrl+S) writes back to the file the scene came from, or into the scene folder; without a folder it downloads. **Save to E16** writes a scene read from the device back to its slot, or asks for a slot. **Close** goes back to the library.
 - Nothing is overwritten silently: saving a slot over an existing file always asks first. If the existing file has the matching Lua script, that script is kept.
@@ -68,6 +88,17 @@ Notes:
 - Scene settings and raw values of all other fields.
 - Undo/redo (Ctrl+Z/Y); the session is kept in the browser.
 - Unknown fields are shown and written back unchanged; untouched files are saved byte-identically.
+
+<p>
+  <img src="docs/screenshots/bulk-edit.png" alt="Bulk edit panel: scope, distribute CCs, set up Push as CC" width="300">
+  <img src="docs/screenshots/cc-in-use.png" alt="Encoder editor: the CC field shows how often a CC is already used, with a list of all uses" width="420">
+</p>
+
+*Left: bulk editing. Right: the encoder editor warns when a CC is already in use and lists where.*
+
+![CC overview: CC usage for all 16 channels, duplicates in orange](docs/screenshots/cc-overview.png)
+
+![Channel detail: every CC of one channel with its encoders, duplicates in orange, free CCs listed for copying](docs/screenshots/cc-channel-detail.png)
 
 ### Device transfer
 
@@ -127,12 +158,14 @@ JSON: scene → `pages[12]` → `encoders[16]` → `turn_actions[2]` (Dest 1, De
 ## Repository layout
 
 ```
+CHANGELOG.md        release notes
 index.html          app shell
 src/model.js        enums, field descriptors, editing operations
 src/app.js          UI
 src/sysex.js        SysEx encoder/decoder and Web MIDI transfer
 src/library.js      local scene folder (File System Access API)
 docs/PROTOCOL.md    USB-MIDI protocol description
+docs/screenshots/   screenshots used in this README
 test/               browser test page and capture fixtures
 ```
 
