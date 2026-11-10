@@ -5,6 +5,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-11-10
+
 ### Added
 
 - "Reset names" (back to E1 … E16 by position) and "All white" (palette color 34) for the whole page (next to the page settings) and in bulk edit for the chosen scope.
@@ -55,5 +57,6 @@ First public release.
 - USB-MIDI protocol description in `docs/PROTOCOL.md`, browser test page with capture fixtures.
 - GitHub link in the app header.
 
-[Unreleased]: https://github.com/knobOx/knobOx/compare/v1.0...HEAD
+[Unreleased]: https://github.com/knobOx/knobOx/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/knobOx/knobOx/compare/v1.0...v1.0.1
 [1.0]: https://github.com/knobOx/knobOx/releases/tag/v1.0
