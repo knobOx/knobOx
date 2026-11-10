@@ -5,6 +5,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-11-10
+
 ### Added
 
 - Paste with a filter: checkboxes next to Paste choose which parts are pasted (Name, Abbr, Color, Dest 1, Dest 2, Push). The other parts of the target encoders stay as they are, e.g. to give cutoff encoders for different devices the same color. All checked pastes the whole encoder as before.
@@ -78,6 +80,7 @@ First public release.
 - USB-MIDI protocol description in `docs/PROTOCOL.md`, browser test page with capture fixtures.
 - GitHub link in the app header.
 
-[Unreleased]: https://github.com/knobOx/knobOx/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/knobOx/knobOx/compare/v1.1.1...HEAD
+[1.1.1]: https://github.com/knobOx/knobOx/compare/v1.0.1...v1.1.1
 [1.0.1]: https://github.com/knobOx/knobOx/compare/v1.0...v1.0.1
 [1.0]: https://github.com/knobOx/knobOx/releases/tag/v1.0
