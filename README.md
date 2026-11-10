@@ -27,7 +27,7 @@ It's a hobby project, shared in a community spirit. It works for me, but it isn'
 
 ## Getting started
 
-**Online:** just open **<https://gabrielkoehl.github.io/knobOx/>** in **Chrome, Chromium, Edge or Brave**. Nothing to install, and your files never leave your computer.
+**Online:** just open **<https://knobox.github.io/knobOx/>** in **Chrome, Chromium, Edge or Brave**. Nothing to install, and your files never leave your computer.
 
 **Locally:** Web MIDI and folder access need a secure context, so serve the repository over `http://localhost` instead of opening `index.html` as a file:
 
