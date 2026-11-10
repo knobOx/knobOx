@@ -51,6 +51,8 @@ Notes:
 - **On device:** connect the E16 and list all 16 slots with name, color and script.
 - Drag a file onto a slot to send it, or a slot onto the file list to save it. Each row also has buttons for **Edit**, **Save** and **Send current**.
 - Scenes opened from the folder are saved back to the same file (**Save**, Ctrl+S); other scenes are downloaded.
+- Nothing is overwritten silently: saving a slot over an existing file always asks first. If the existing file has the matching Lua script, that script is kept.
+- **Scripts on the device:** reading a script back from the E16 isn't supported yet (the request is still unknown). Such slots load without their script and can't be sent back, so the script on the device can't be erased by accident.
 
 ### Editor
 
@@ -59,13 +61,14 @@ Notes:
 - Bulk editing for a selection, a page or a page range, row- or column-wise: distribute CCs (optionally skipping used ones), set up Push as CC, set any field, name by pattern (`{n}`, `{cc}`, `{e}`, `{p}`), fixed colors or gradients, copy and swap pages.
 - Copy/paste encoders (Ctrl+C/V), drag to swap, Alt+drag to copy.
 - CC overview: 16 channels × 128 CCs, duplicates highlighted, detail view with jump to encoder and a list of free CCs.
-- Scene settings, 16×16 icon editor, raw values of all other fields.
+- **Draw your own scene icons:** a nice side effect of decoding the format. Each scene has a 16×16 one-bit icon, and the Scene tab has a pixel editor for it (paint, clear, invert). The icon goes to the E16 together with the scene.
+- Scene settings and raw values of all other fields.
 - Undo/redo (Ctrl+Z/Y); the session is kept in the browser.
 - Unknown fields are shown and written back unchanged; untouched files are saved byte-identically.
 
 ### Device transfer
 
-- Upload and download produce exactly the same bytes as the OXI App, including scenes with Lua scripts.
+- Uploads produce exactly the same bytes as the OXI App, including scenes with Lua scripts. Downloads match the OXI App for scenes without scripts.
 - **Send to E16** dialog with slot selection, or **Save as .syx** for sending without a browser, e.g. on Linux:
 
   ```bash
