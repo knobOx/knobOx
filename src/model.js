@@ -89,6 +89,8 @@
     '#00e887', '#00eb8d', '#00f098', '#00f59f', '#00f7a5', '#00faaf', '#00ffb7', '#00f0b4', '#00e0ac', '#00d4a9',
   ];
 
+  const WHITE = PALETTE.indexOf('#ffffff');
+
   const TURN_CC_TYPES = [1, 2, 3, 4];
   const PUSH_CC_TYPES = [2];
 
@@ -350,7 +352,7 @@
 
   const api = {
     TURN_TYPES, PUSH_TYPES, PUSH_MODES, ROLES, ROLE_LABEL,
-    ACTION_OUTPUTS, PAGE_OUTPUTS, ACCEL_MODES, DISPLAYS, PALETTE,
+    ACTION_OUTPUTS, PAGE_OUTPUTS, ACCEL_MODES, DISPLAYS, PALETTE, WHITE,
     noteName, getAction, typeTable, typeLabel, isCC,
     pageChannel, setPageChannel, effectiveChannel,
     actionFields, actionSummary, collectCCUses, distinctOwners, rangesText,

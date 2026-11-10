@@ -680,7 +680,21 @@
       row('Channel', selectEl(chOpts, M.pageChannel(p, S.settings), v => commit(() => M.setPageChannel(p, v, S.settings)))),
       row('Output', selectEl(M.PAGE_OUTPUTS, p.output, v => commit(() => { p.output = v; })),
         'Other values not decoded yet'),
+      el('span', { class: 'inl' },
+        el('button', { class: 'btn small', title: 'Clear name and abbreviation of all 16 encoders on this page', onclick: () => clearNames(pageTargets(), 'both') }, 'Clear names'),
+        el('button', { class: 'btn small', title: 'Set the color of all 16 encoders on this page to white', onclick: () => setWhite(pageTargets()) }, 'All white')),
     );
+  }
+  const pageTargets = () => curPage().encoders.map((_, e) => ({ p: S.page, e }));
+  function clearNames(t, target) {
+    commit(() => t.forEach(x => {
+      const enc = S.scene.pages[x.p].encoders[x.e];
+      if (target !== 'abbr') enc.name = '';
+      if (target !== 'name') enc.abbr = '';
+    }), 'Names cleared (' + t.length + ' encoders)');
+  }
+  function setWhite(t) {
+    commit(() => t.forEach(x => { S.scene.pages[x.p].encoders[x.e].color = M.WHITE; }), 'Colors set to white (' + t.length + ' encoders)');
   }
 
   function renderGrid() {
@@ -975,7 +989,9 @@
       row('Target', selectEl({ 0: { label: 'Name + Abbr', sure: true }, 1: { label: 'Name only', sure: true }, 2: { label: 'Abbr only', sure: true } },
         ['both', 'name', 'abbr'].indexOf(o.target), v => { o.target = ['both', 'name', 'abbr'][v]; })),
       el('p', { class: 'muted' }, 'Placeholders: {n} {cc} {e} {p}'),
-      el('button', { class: 'btn primary', onclick: e => { e.preventDefault(); runName(); } }, 'Rename'));
+      el('span', { class: 'inl' },
+        el('button', { class: 'btn primary', onclick: e => { e.preventDefault(); runName(); } }, 'Rename'),
+        el('button', { class: 'btn', title: 'Clear the names of the encoders in scope (Target applies)', onclick: e => { e.preventDefault(); clearNames(targets(), o.target); } }, 'Clear names')));
   }
   function runName() {
     const o = bulkState.name;
@@ -1002,7 +1018,9 @@
         v => { o.mode = v ? 'grad' : 'fixed'; render(); })),
       row(o.mode === 'fixed' ? 'Color' : 'From', el('span', { class: 'inl' }, numEl(o.a, v => { o.a = v; render(); }, { min: 0, max: 100, class: 'w-num' }), sw(o.a))),
       o.mode === 'grad' ? row('To', el('span', { class: 'inl' }, numEl(o.b, v => { o.b = v; render(); }, { min: 0, max: 100, class: 'w-num' }), sw(o.b))) : null,
-      el('button', { class: 'btn primary', onclick: e => { e.preventDefault(); runColor(); } }, 'Apply color'));
+      el('span', { class: 'inl' },
+        el('button', { class: 'btn primary', onclick: e => { e.preventDefault(); runColor(); } }, 'Apply color'),
+        el('button', { class: 'btn', title: 'Set the encoders in scope to white (color ' + M.WHITE + ')', onclick: e => { e.preventDefault(); setWhite(targets()); } }, 'All white')));
   }
   function runColor() {
     const o = bulkState.color;
@@ -1052,10 +1070,20 @@
   function pasteSel() {
     if (!S.clip) return toast('Clipboard is empty', true);
     const sel = selected();
-    const start = sel.length ? sel[0] : 0;
-    // Paste into selection if sizes match, else sequentially from first selected.
-    const dest = sel.length === S.clip.length ? sel : S.clip.map((_, k) => start + k).filter(i => i < 16);
-    commit(() => { dest.forEach((d, k) => { curPage().encoders[d] = M.deepClone(S.clip[k]); }); }, dest.length + ' encoder(s) pasted');
+    if (!sel.length) return toast('Select the encoder to paste into first', true);
+    const one = S.clip.length === 1;
+    let dest;
+    if (one || sel.length === S.clip.length) {
+      // One copied encoder fills every selected encoder; same count pastes one to one.
+      dest = sel;
+    } else {
+      // Otherwise paste consecutively, starting at the encoder clicked last.
+      const start = S.anchor !== null && S.sel.has(S.anchor) ? S.anchor : sel[0];
+      dest = S.clip.map((_, k) => start + k).filter(i => i < curPage().encoders.length);
+    }
+    const cut = one ? 0 : S.clip.length - dest.length;
+    commit(() => { dest.forEach((d, k) => { curPage().encoders[d] = M.deepClone(S.clip[one ? 0 : k]); }); },
+      dest.length + ' encoder(s) pasted' + (cut ? ', ' + cut + ' did not fit on the page' : ''));
     S.sel = new Set(dest); render();
   }
 
