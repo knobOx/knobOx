@@ -90,6 +90,14 @@
     await (await sceneDir(dir)).removeEntry(name);
   }
 
+  /* Text of <name> in the chosen folder itself (not the "Scenes" subfolder), or null if missing. */
+  async function readRootFile(dir, name) {
+    try { return await (await (await dir.getFileHandle(name)).getFile()).text(); } catch (e) { return null; }
+  }
+  async function writeRootFile(dir, name, text) {
+    await write(await dir.getFileHandle(name, { create: true }), text);
+  }
+
   /* File name for a scene title, keeping it safe on all platforms. */
   function fileNameFor(title) {
     const base = String(title || 'scene').replace(/[\\/:*?"<>|]+/g, '_').trim() || 'scene';
@@ -118,5 +126,5 @@
     return { browser: 'this browser', steps: null };
   }
 
-  root.E16Library = { supported, pickFolder, storedFolder, forget, list, read, write, exists, save, remove, fileNameFor, enableHint };
+  root.E16Library = { supported, pickFolder, storedFolder, forget, list, read, write, exists, save, remove, readRootFile, writeRootFile, fileNameFor, enableHint };
 })(window);

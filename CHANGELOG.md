@@ -5,6 +5,24 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-11-11
+
+### Added
+
+- Bulk edit "Navigation": writes Navigation pushes from a template to the current Page or a Page range, with targets relative to each Page. Built-in template "Row 1–4": encoder 1 ← previous Page, 2 ↑ four Pages back, 3 ↓ four Pages ahead, 4 → next Page, matching the 4×3 Page selector and wrapping around the scene's 12 Pages (P1 ← = P12). "Save Page as template" stores the Navigation pushes of the current Page under a name; own templates are kept in the browser and in `knobox-navigation.json` in the scene folder.
+- Bulk edit scope "Page range": "Encoders" chooses all 16 or only the positions selected in the grid, applied to the same positions on every Page of the range (e.g. encoders 5–16 while 1–4 hold the navigation).
+- Bulk edit "Color" with a Page range: "Gradient per Page" (on by default) runs the gradient from start to end on every Page; off, one gradient spans all Pages.
+- Bulk edit "Assign names" with a Page range: "{n} per Page" restarts the running number on every Page.
+
+### Changed
+
+- Push type 6 is called "Navigation", as in the OXI App (was "Page").
+
+### Fixed
+
+- Display (encoder editor and bulk edit "Set field") offers the values of the E16 menu: Off, Standard, 127, 100, 1000, Bipolar, 9999, High Res, Always On. Bipolar is value 4, Always On is value 12. The values B50, B500 and On/Off (5, 6, 7) are not offered by the device and were removed; a scene that still contains one of them shows it as "(unknown)" and keeps it.
+- Bulk edit "Set field" no longer offers `nr2` (Dest 1, Dest 2 and Push).
+
 ## [1.1.2] - 2026-11-11
 
 ### Added
@@ -99,7 +117,8 @@ First public release.
 - USB-MIDI protocol description in `docs/PROTOCOL.md`, browser test page with capture fixtures.
 - GitHub link in the app header.
 
-[Unreleased]: https://github.com/knobOx/knobOx/compare/v1.1.2...HEAD
+[Unreleased]: https://github.com/knobOx/knobOx/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/knobOx/knobOx/compare/v1.1.2...v1.2.0
 [1.1.2]: https://github.com/knobOx/knobOx/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/knobOx/knobOx/compare/v1.0.1...v1.1.1
 [1.0.1]: https://github.com/knobOx/knobOx/compare/v1.0...v1.0.1

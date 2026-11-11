@@ -29,7 +29,7 @@
     3: { label: 'PC', sure: true },
     4: { label: 'Set to Default', sure: true },
     5: { label: 'AT', sure: true },
-    6: { label: 'Page', sure: true },
+    6: { label: 'Navigation', sure: true },
     7: { label: 'Record', sure: true },
     8: { label: 'Play/Pause Rec', sure: true },
     12: { label: 'Script', sure: true },
@@ -68,11 +68,13 @@
     8: { label: 'LSp2', sure: true }, 9: { label: 'LSp4', sure: true }, 10: { label: 'LSp6', sure: true },
     14: { label: 'Scene', sure: true },
   };
+  // Turn display (verified on the device). "pos" is the position in the device menu.
   const DISPLAYS = {
-    0: { label: 'Off', sure: true }, 1: { label: '127', sure: true }, 2: { label: '100', sure: true },
-    3: { label: '1000', sure: true }, 4: { label: 'B63', sure: true }, 5: { label: 'B50', sure: true },
-    6: { label: 'B500', sure: true }, 7: { label: 'On/Off', sure: true }, 8: { label: '9999', sure: true },
-    10: { label: 'Standard', sure: true }, 11: { label: 'High Res', sure: true },
+    0: { label: 'Off', sure: true, pos: 0 }, 10: { label: 'Standard', sure: true, pos: 1 },
+    1: { label: '127', sure: true, pos: 2 }, 2: { label: '100', sure: true, pos: 3 },
+    3: { label: '1000', sure: true, pos: 4 }, 4: { label: 'Bipolar', sure: true, pos: 5 },
+    8: { label: '9999', sure: true, pos: 6 }, 11: { label: 'High Res', sure: true, pos: 7 },
+    12: { label: 'Always On', sure: true, pos: 8 },
   };
 
   // E16 color palette 0..99, sampled from the app's color picker (10x10 grid, row-major).
@@ -339,6 +341,81 @@
     icon[i] = on ? (icon[i] | m) : (icon[i] & ~m);
   }
 
+  /*
+   * Navigation templates: Navigation pushes (type 6) stored relative to the page they sit on.
+   * A template is { name, items: [{ enc, step, set }] }: encoder index 0..15, page offset
+   * (wraps around all pages of the scene: P1 - 1 = P12) and the push fields written besides nr2 (the target page).
+   * Pages form a grid of NAV_COLS columns like the E16 page selector, so ±NAV_COLS moves up/down.
+   */
+  const NAV_COLS = 4;
+  const NAV_FIELDS = ['type', 'mode', 'channel', 'nr1', 'lower', 'upper', 'output'];
+  const NAV_BASE = { type: 6, mode: 0, channel: 0, nr1: 0, lower: 0, upper: 0, output: 0 };
+  const NAV_DEFAULT = {
+    name: 'Row 1–4 (← ↑ ↓ →)', builtin: true,
+    items: [
+      { enc: 0, step: -1, set: Object.assign({}, NAV_BASE) },
+      { enc: 1, step: -NAV_COLS, set: Object.assign({}, NAV_BASE) },
+      { enc: 2, step: NAV_COLS, set: Object.assign({}, NAV_BASE) },
+      { enc: 3, step: 1, set: Object.assign({}, NAV_BASE) },
+    ],
+  };
+  const PUSH_EMPTY = { instrument: 127, parameter: 0, type: 0, display: 0, mode: 0, channel: 0, lower: 0, upper: 0, nr1: 0, nr2: 0, output: 0, scriptId: 0 };
+
+  const mod = (a, n) => ((a % n) + n) % n;
+  /* Offset from page p to target t, folded into -n/2 .. n/2. */
+  function navStep(p, t, n) {
+    let d = mod(t - p, n);
+    if (d > n / 2) d -= n;
+    return d;
+  }
+  /* Target page of a template item on page p (n pages). */
+  function navTarget(p, it, n) { return mod(p + it.step, n); }
+  /* Arrow for the grid moves, otherwise the signed offset. */
+  function navStepLabel(it) {
+    const arrows = { '-1': '←', '1': '→', [-NAV_COLS]: '↑', [NAV_COLS]: '↓' };
+    return arrows[it.step] || (it.step > 0 ? '+' + it.step : String(it.step));
+  }
+  function navTemplateText(t) {
+    return t.items.map(i => 'E' + (i.enc + 1) + ' ' + navStepLabel(i)).join(', ');
+  }
+  /* Template from the Page pushes of page p. Returns null when the page has none. */
+  function navFromPage(scene, p, name) {
+    const n = scene.pages.length;
+    const items = [];
+    scene.pages[p].encoders.forEach((enc, e) => {
+      const a = enc.push_action;
+      if (!a || a.type !== 6) return;
+      const set = {};
+      NAV_FIELDS.forEach(k => { if (k in a) set[k] = a[k]; });
+      items.push({ enc: e, step: navStep(p, a.nr2, n), set });
+    });
+    return items.length ? { name: name, items } : null;
+  }
+  /*
+   * Writes the template's pushes on the given pages. Other fields of the push are kept.
+   * Returns { pushes, replaced }: replaced counts pushes that were neither Off nor Page before.
+   */
+  function applyNav(scene, pages, tpl) {
+    const n = scene.pages.length;
+    let pushes = 0, replaced = 0;
+    pages.forEach(p => tpl.items.forEach(it => {
+      const enc = scene.pages[p].encoders[it.enc];
+      if (!enc) return;
+      const old = enc.push_action || Object.assign({}, PUSH_EMPTY);
+      if (old.type !== 0 && old.type !== 6) replaced++;
+      enc.push_action = Object.assign({}, old, it.set, { nr2: navTarget(p, it, n) });
+      pushes++;
+    }));
+    return { pushes, replaced };
+  }
+  /* Checks a parsed template list from storage; drops entries that do not fit. */
+  function cleanNavTemplates(list) {
+    if (!Array.isArray(list)) return [];
+    return list.filter(t => t && typeof t.name === 'string' && Array.isArray(t.items) && t.items.length
+      && t.items.every(i => Number.isInteger(i.enc) && i.enc >= 0 && i.enc < 16 && Number.isInteger(i.step) && i.set && typeof i.set === 'object'))
+      .map(t => ({ name: t.name, items: t.items.map(i => ({ enc: i.enc, step: i.step, set: Object.assign({}, i.set) })) }));
+  }
+
   function validateScene(s) {
     if (!s || typeof s !== 'object') return 'Not a JSON object.';
     if (!Array.isArray(s.pages)) return 'Field "pages" is missing.';
@@ -358,6 +435,7 @@
     pageChannel, setPageChannel, effectiveChannel,
     actionFields, actionSummary, collectCCUses, distinctOwners, rangesText,
     orderIndices, distributeCC, colorCss, deepClone, iconGet, iconSet, validateScene,
+    NAV_DEFAULT, NAV_COLS, navStep, navTarget, navStepLabel, navTemplateText, navFromPage, applyNav, cleanNavTemplates,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.E16 = api;

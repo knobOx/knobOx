@@ -99,7 +99,8 @@ Notes:
 
 - 4×4 grid per page with name, color, Dest 1, Dest 2 and Push; changed encoders are highlighted.
 - Encoder editor with all fields, type-dependent labels and CC usage per channel.
-- Bulk editing for a selection, a page or a page range, row- or column-wise: distribute CCs (optionally skipping used ones), set up Push as CC, set any field, name by pattern (`{n}`, `{cc}`, `{e}`, `{p}`), fixed colors or gradients, copy and swap pages.
+- Bulk editing for a selection, a page or a page range (all 16 encoders or only the selected positions on every page), row- or column-wise: distribute CCs (optionally skipping used ones), set up Push as CC, set any field, name by pattern (`{n}`, `{cc}`, `{e}`, `{p}`), fixed colors or gradients (per page or across the range), copy and swap pages.
+- Navigation templates: Navigation pushes stored relative to their page and written to one page or a page range. Built in: Row 1–4 with encoder 1 ← (previous Page), 2 ↑ (−4), 3 ↓ (+4), 4 → (next Page), matching the 4×3 page selector and wrapping around the scene's 12 Pages (P1 ← = P12). Own templates are taken from a page and stored in the browser and in `knobox-navigation.json` in the scene folder.
 - Copy/paste encoders (Ctrl+C/V), drag to swap, Alt+drag to copy. The checkboxes next to Paste choose what is pasted (Name, Abbr, Color, Dest 1, Dest 2, Push), e.g. only the color onto encoders that control other devices.
 - Drag a Page onto another Page to swap them, Alt+drag (or Ctrl+drag) to copy. "Nav on swap" decides what happens to Page navigation pushes (Nav → P…): "Move with page" swaps them with the page (pushes leading to one of the two pages get its new number), "Stay in place" pins them to their position, e.g. for a navigation layout that is the same on every page. Pushes arriving at a pinned position are overwritten, Nav pushes arriving at a free position are turned off.
 - CC overview: 16 channels × 128 CCs, duplicates highlighted, detail view with jump to encoder and a list of free CCs.
@@ -149,7 +150,7 @@ JSON: scene → `pages[12]` → `encoders[16]` → `turn_actions[2]` (Dest 1, De
 | Field | Meaning | Source |
 |---|---|---|
 | `turn_actions[].type` | 0 Off, 1 CC Rel1, 2 CC Rel2, 3 CC Abs, 4 CC14, 5 PC, 6 PB, 7 AT, 8 Note, 9 NRPN, 10 Snapshot, 11 Script | 0/3 verified in the app, 1–10 community docs, 11 used with `scriptId` in script scenes |
-| `push_action.type` | 0 Off, 1 Note, 2 CC, 3 PC, 4 Set to Default, 5 AT, 6 Page, 7 Record, 8 Play/Pause Rec, 12 Script | 0/2/6 verified, 1–8 community docs, 12 used with `scriptId` in script scenes |
+| `push_action.type` | 0 Off, 1 Note, 2 CC, 3 PC, 4 Set to Default, 5 AT, 6 Navigation, 7 Record, 8 Play/Pause Rec, 12 Script | 0/2/6 verified, 1–8 community docs, 12 used with `scriptId` in script scenes |
 | `push_action.mode` | 0 Press only, 1 Press + Release, 2 Toggle | 0 and 2 verified, 1 assumed |
 | `nr1` | CC number / note / PC number; LSB for NRPN | community docs |
 | `nr2` | MSB for NRPN, LSB for CC14, target page (0-based) for Page; unused for CC, PC, PB and AT (the OXI App leaves old values there, the editor hides the field and keeps the value) | target page verified on the device, rest community docs and own scenes |
@@ -160,7 +161,7 @@ JSON: scene → `pages[12]` → `encoders[16]` → `turn_actions[2]` (Dest 1, De
 | `output` (page) | 0 ALL, 1 TRS1, 2 TRS2, 3 USB1, 4 USB2, 5 USB3, 6 BLE, 13 ALL −BLE, 14 ALL −USB | 0–6 verified, 13/14 community docs |
 | `output` (action) | as page, plus 12 and 15 = Page; 7 and 8 are rejected by the app | verified except 13/14 |
 | `mode` (turn) | Accel mode: 0 Div8, 1 Div4, 2 Div2, 3–7 Acc0–Acc4, 8 LSp2, 9 LSp4, 10 LSp6, 14 Scene | 3/14 verified, rest community docs |
-| `display` (turn) | 0 Off, 1 127, 2 100, 3 1000, 4 B63, 5 B50, 6 B500, 7 On/Off, 8 9999, 10 Standard, 11 High Res | 10 verified, rest community docs |
+| `display` (turn) | 0 Off, 1 127, 2 100, 3 1000, 4 Bipolar, 8 9999, 10 Standard, 11 High Res, 12 Always On | verified on the device |
 | `acceleration` (scene) | same numbering as accel mode (5 = Acc2) | verified |
 | `instrument`, `parameter` | raw values | unknown encoding |
 | `color` | palette 0–99, 10×10 row by row as in the app's color picker | sampled from the app |

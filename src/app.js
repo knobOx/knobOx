@@ -21,18 +21,21 @@
     side: 'edit',
     ovChannel: null,
     ovOpts: { d1: true, d2: true, push: true, lsb: true },
-    bulk: { scope: 'sel', from: 1, to: 12, order: 'row' },
+    bulk: { scope: 'sel', from: 1, to: 12, order: 'row', selPos: false },
     settings: loadSettings(),
     view: 'library',      // 'library' | 'editor'
     fileHandle: null,     // set when the scene was opened from the scene folder
     lib: { dir: null, pending: null, files: [], slots: null, busy: false, status: '' },
     midi: null,           // { access, input, output }
+    nav: { list: [], sel: 0, inFolder: false },  // user navigation templates; sel indexes [built-in, ...list]
   };
   const UNDO_MAX = 200;
   const LS_SESSION = 'e16ed.session';
   const LS_OPEN = 'e16ed.openSection';
   const LS_SETTINGS = 'e16ed.settings';
   const LS_THEME = 'e16ed.theme';
+  const LS_NAV = 'e16ed.navTemplates';
+  const NAV_FILE = 'knobox-navigation.json';
 
   function loadSettings() {
     try { return Object.assign({}, JSON.parse(localStorage.getItem(LS_SETTINGS) || '{}')); }
@@ -100,7 +103,9 @@
     toast._t = setTimeout(() => { t.hidden = true; }, isErr ? Math.max(3200, msg.length * 70) : 3200);
   }
   function optionsFor(table, current) {
-    const opts = Object.entries(table).map(([v, d]) =>
+    // Entries with "pos" are listed in that order, otherwise by value.
+    const entries = Object.entries(table).sort(([, a], [, b]) => (a.pos ?? 0) - (b.pos ?? 0));
+    const opts = entries.map(([v, d]) =>
       el('option', { value: v, selected: Number(v) === current }, d.label + (d.sure ? '' : ' (?)')));
     if (current !== undefined && !(current in table)) opts.push(el('option', { value: current, selected: true }, current + ' (unknown)'));
     return opts;
@@ -465,8 +470,41 @@
     if (d && d.pending) S.lib.pending = d; else if (d) S.lib.dir = d;
     await refreshFolder();
   }
+
+  // ---------- navigation templates ----------
+  /*
+   * User templates live in the browser (localStorage) and, once a scene folder is open, in NAV_FILE
+   * in that folder. The file wins when both exist; without a file the browser's templates are written to it.
+   */
+  function loadNavLocal() {
+    try { S.nav.list = M.cleanNavTemplates(JSON.parse(localStorage.getItem(LS_NAV) || '[]')); } catch (e) { S.nav.list = []; }
+  }
+  async function loadNavFolder() {
+    if (!S.lib.dir) { S.nav.inFolder = false; return; }
+    try {
+      const text = await L().readRootFile(S.lib.dir, NAV_FILE);
+      if (text !== null) {
+        S.nav.list = M.cleanNavTemplates(JSON.parse(text));
+        try { localStorage.setItem(LS_NAV, JSON.stringify(S.nav.list)); } catch (e) { /* storage unavailable */ }
+      } else if (S.nav.list.length) {
+        await L().writeRootFile(S.lib.dir, NAV_FILE, JSON.stringify(S.nav.list, null, 2));
+      }
+      S.nav.inFolder = true;
+    } catch (e) {
+      S.nav.inFolder = false;
+      toast('Could not read ' + NAV_FILE + ': ' + e.message, true);
+    }
+  }
+  async function saveNav() {
+    try { localStorage.setItem(LS_NAV, JSON.stringify(S.nav.list)); } catch (e) { /* storage unavailable */ }
+    if (!S.lib.dir) return;
+    try { await L().writeRootFile(S.lib.dir, NAV_FILE, JSON.stringify(S.nav.list, null, 2)); S.nav.inFolder = true; }
+    catch (e) { toast('Could not write ' + NAV_FILE + ': ' + e.message, true); }
+  }
+
   async function refreshFolder() {
     if (!S.lib.dir) { renderLibrary(); return; }
+    await loadNavFolder();
     try { S.lib.files = await L().list(S.lib.dir); }
     catch (e) { S.lib.files = []; toast('Could not read the folder: ' + e.message + (onLinux() ? ' ' + FOLDER_FLATPAK : ''), true); }
     renderLibrary();
@@ -732,7 +770,9 @@
     const out = [];
     if (b.scope === 'pages') {
       const from = Math.max(1, Math.min(b.from, b.to)), to = Math.min(S.scene.pages.length, Math.max(b.from, b.to));
-      for (let p = from - 1; p < to; p++) M.orderIndices([...Array(16).keys()], b.order).forEach(e => out.push({ p, e }));
+      // With selPos, only the encoder positions selected on the current Page, on every Page of the range.
+      const idx = b.selPos && S.sel.size ? selected() : [...Array(16).keys()];
+      for (let p = from - 1; p < to; p++) M.orderIndices(idx, b.order).forEach(e => out.push({ p, e }));
     } else {
       const idx = b.scope === 'sel' && S.sel.size ? selected() : [...Array(curPage().encoders.length).keys()];
       M.orderIndices(idx, b.order).forEach(e => out.push({ p: S.page, e }));
@@ -741,7 +781,8 @@
   }
   function scopeText() {
     const b = S.bulk;
-    if (b.scope === 'pages') return 'Pages ' + Math.min(b.from, b.to) + '–' + Math.max(b.from, b.to);
+    if (b.scope === 'pages') return 'Pages ' + Math.min(b.from, b.to) + '–' + Math.max(b.from, b.to)
+      + (b.selPos && S.sel.size ? ', encoders ' + selected().map(e => e + 1).join(', ') : '');
     if (b.scope === 'sel' && S.sel.size) return S.sel.size + ' selected encoders';
     return 'whole Page ' + (S.page + 1);
   }
@@ -1057,16 +1098,16 @@
     cc: { role: 'd1', start: 1, step: 1, skipUsed: false, setTypeIfOff: true, keepOther: true, channel: 'keep' },
     push: { source: 'seq', offset: 16, start: 1, startAuto: true, skipUsed: true, mode: 0, pval: 127, rval: 0, copyChannel: true, setTypeIfOff: false, keepOther: true },
     field: { role: 'd1', key: 'type', value: 3 },
-    name: { pattern: 'CC{cc}', start: 1, target: 'both' },
-    color: { mode: 'fixed', a: 0, b: 90 },
+    name: { pattern: 'CC{cc}', start: 1, target: 'both', perPage: false },
+    color: { mode: 'fixed', a: 0, b: 90, perPage: true },
     page: { target: 1, withSettings: true },
   };
 
   const FIELD_KEYS = {
     enc: ['color'],
-    d1: ['type', 'channel', 'output', 'nr2', 'lower', 'upper', 'defaultValue', 'mode', 'display', 'instrument'],
-    d2: ['type', 'channel', 'output', 'nr2', 'lower', 'upper', 'defaultValue', 'mode', 'display', 'instrument'],
-    push: ['type', 'channel', 'output', 'mode', 'nr2', 'lower', 'upper', 'scriptId'],
+    d1: ['type', 'channel', 'output', 'lower', 'upper', 'defaultValue', 'mode', 'display', 'instrument'],
+    d2: ['type', 'channel', 'output', 'lower', 'upper', 'defaultValue', 'mode', 'display', 'instrument'],
+    push: ['type', 'channel', 'output', 'mode', 'lower', 'upper', 'scriptId'],
   };
 
   function renderBulk() {
@@ -1081,12 +1122,16 @@
         { sel: 0, page: 1, pages: 2 }[b.scope], v => { b.scope = ['sel', 'page', 'pages'][v]; render(); })),
       b.scope === 'pages' ? row('From / to', el('span', { class: 'inl' },
         selectEl(pageNums, b.from, v => { b.from = v; render(); }), selectEl(pageNums, b.to, v => { b.to = v; render(); }))) : null,
+      b.scope === 'pages' ? row('Encoders', selectEl({ 0: { label: 'All 16', sure: true }, 1: { label: 'Selected positions', sure: true } },
+        b.selPos ? 1 : 0, v => { b.selPos = !!v; render(); }),
+        'Selected positions: the encoders selected in the grid, at the same positions on every Page of the range') : null,
+      b.scope === 'pages' && b.selPos && !S.sel.size ? el('p', { class: 'muted' }, 'No encoders selected: all 16 are used.') : null,
       row('Order', selectEl({ 0: { label: 'By row (1-2-3-4)', sure: true }, 1: { label: 'By column (1-5-9-13)', sure: true } },
         b.order === 'col' ? 1 : 0, v => { b.order = v ? 'col' : 'row'; render(); })),
       el('p', { class: 'muted' }, 'Current: ' + scopeText() + ' (' + targets().length + ' encoders)'),
     );
 
-    pane.replaceChildren(scope, bulkCC(), bulkPush(), bulkField(), bulkName(), bulkColor(), bulkPage(pageNums));
+    pane.replaceChildren(scope, bulkCC(), bulkPush(), bulkNav(), bulkField(), bulkName(), bulkColor(), bulkPage(pageNums));
   }
 
   const roleOpts = { 0: { label: 'Dest 1', sure: true }, 1: { label: 'Dest 2', sure: true }, 2: { label: 'Push', sure: true } };
@@ -1106,7 +1151,7 @@
       row('Activate Off targets', el('input', { type: 'checkbox', checked: o.setTypeIfOff, onchange: e => { o.setTypeIfOff = e.target.checked; } }),
         'Changes type Off to CC Abs (Dest) or CC (Push)'),
       row('Keep navigation & other functions', el('input', { type: 'checkbox', checked: o.keepOther, onchange: e => { o.keepOther = e.target.checked; } }),
-        'Skips actions that are neither Off nor CC, e.g. Page navigation, Script, Note or PC. They keep their function and use no CC number.'),
+        'Skips actions that are neither Off nor CC, e.g. Navigation, Script, Note or PC. They keep their function and use no CC number.'),
       el('button', { class: 'btn primary', onclick: e => { e.preventDefault(); runCC(); } }, 'Distribute'));
   }
   function runCC() {
@@ -1177,7 +1222,7 @@
       row('Activate Off targets', el('input', { type: 'checkbox', checked: o.setTypeIfOff, onchange: e => { o.setTypeIfOff = e.target.checked; } }),
         'Changes Push type Off to CC. Unchecked, Off pushes get their CC number and values but stay Off.'),
       row('Keep navigation & other functions', el('input', { type: 'checkbox', checked: o.keepOther, onchange: e => { o.keepOther = e.target.checked; } }),
-        'Only Push actions that are Off or already CC are changed; Page navigation, Set to Default, Script etc. stay as they are.'),
+        'Only Push actions that are Off or already CC are changed; Navigation, Set to Default, Script etc. stay as they are.'),
       el('button', { class: 'btn primary', onclick: e => { e.preventDefault(); runPush(); } }, 'Apply'));
   }
   function runPush() {
@@ -1267,6 +1312,8 @@
       row('Start {n}', numEl(o.start, v => { o.start = v; }, { class: 'w-num' })),
       row('Target', selectEl({ 0: { label: 'Name + Abbr', sure: true }, 1: { label: 'Name only', sure: true }, 2: { label: 'Abbr only', sure: true } },
         ['both', 'name', 'abbr'].indexOf(o.target), v => { o.target = ['both', 'name', 'abbr'][v]; })),
+      S.bulk.scope === 'pages' ? row('{n} per Page', el('input', { type: 'checkbox', checked: o.perPage, onchange: e => { o.perPage = e.target.checked; } }),
+        'Restart {n} at the start value on every Page') : null,
       el('p', { class: 'muted' }, 'Placeholders: {n} {cc} {e} {p}'),
       el('span', { class: 'inl' },
         el('button', { class: 'btn primary', onclick: e => { e.preventDefault(); runName(); } }, 'Rename'),
@@ -1274,9 +1321,11 @@
   }
   function runName() {
     const o = bulkState.name;
-    let n = o.start, cut = 0;
+    let n = o.start, cut = 0, page = null;
     commit(() => {
       for (const t of targets()) {
+        if (o.perPage && S.bulk.scope === 'pages' && t.p !== page) n = o.start;
+        page = t.p;
         const enc = S.scene.pages[t.p].encoders[t.e];
         let s = o.pattern.replace(/\{n\}/g, n).replace(/\{cc\}/g, enc.turn_actions[0].nr1)
           .replace(/\{e\}/g, t.e + 1).replace(/\{p\}/g, t.p + 1);
@@ -1296,6 +1345,8 @@
         v => { o.mode = v ? 'grad' : 'fixed'; render(); })),
       row(o.mode === 'fixed' ? 'Color' : 'From', colorEl(o.a, v => { o.a = v; render(); })),
       o.mode === 'grad' ? row('To', colorEl(o.b, v => { o.b = v; render(); })) : null,
+      o.mode === 'grad' && S.bulk.scope === 'pages' ? row('Gradient per Page', el('input', { type: 'checkbox', checked: o.perPage, onchange: e => { o.perPage = e.target.checked; } }),
+        'On: the gradient runs on every Page from start to end. Off: one gradient across all Pages of the range.') : null,
       el('span', { class: 'inl' },
         el('button', { class: 'btn primary', onclick: e => { e.preventDefault(); runColor(); } }, 'Apply color'),
         el('button', { class: 'btn', title: 'Set the encoders in scope to white (color ' + M.WHITE + ')', onclick: e => { e.preventDefault(); setWhite(targets()); } }, 'All white')));
@@ -1303,12 +1354,80 @@
   function runColor() {
     const o = bulkState.color;
     const t = targets();
+    // Groups that each get the whole gradient: one per Page, or all targets together.
+    const groups = o.perPage && S.bulk.scope === 'pages'
+      ? [...new Set(t.map(x => x.p))].map(p => t.filter(x => x.p === p)) : [t];
     commit(() => {
-      t.forEach((x, k) => {
-        const v = o.mode === 'fixed' || t.length < 2 ? o.a : Math.round(o.a + (o.b - o.a) * k / (t.length - 1));
+      groups.forEach(g => g.forEach((x, k) => {
+        const v = o.mode === 'fixed' || g.length < 2 ? o.a : Math.round(o.a + (o.b - o.a) * k / (g.length - 1));
         S.scene.pages[x.p].encoders[x.e].color = Math.max(0, Math.min(M.PALETTE.length - 1, v));
-      });
+      }));
     }, 'Colors set');
+  }
+
+  /* Pages a navigation template is written to: the Page range, otherwise the current Page. */
+  function navPages() {
+    const b = S.bulk;
+    if (b.scope !== 'pages') return [S.page];
+    const from = Math.max(1, Math.min(b.from, b.to)), to = Math.min(S.scene.pages.length, Math.max(b.from, b.to));
+    const out = [];
+    for (let p = from - 1; p < to; p++) out.push(p);
+    return out;
+  }
+  function navTemplates() { return [M.NAV_DEFAULT, ...S.nav.list]; }
+  function bulkNav() {
+    const all = navTemplates();
+    if (S.nav.sel >= all.length) S.nav.sel = 0;
+    const tpl = all[S.nav.sel];
+    const opts = {};
+    all.forEach((t, i) => { opts[i] = { label: t.name, sure: true }; });
+    const pages = navPages();
+    const pagesText = pages.length === 1 ? 'Page ' + (pages[0] + 1) : 'Pages ' + (pages[0] + 1) + '–' + (pages[pages.length - 1] + 1);
+    return el('fieldset', null, el('legend', null, 'Navigation'),
+      row('Template', selectEl(opts, S.nav.sel, v => { S.nav.sel = v; render(); })),
+      el('p', { class: 'muted' }, 'Push: ' + M.navTemplateText(tpl) + '. Targets are relative to each Page and wrap around the scene\'s 12 Pages (P1 ← = P12, P1 ↑ = P9).'),
+      el('p', { class: 'muted' }, 'Writes to ' + pagesText + ' (Scope: current Page or Page range). Other encoders and Dest 1/2 stay unchanged.'),
+      el('div', { class: 'inl' },
+        el('button', { class: 'btn primary', onclick: e => { e.preventDefault(); runNav(tpl, pages); } }, 'Apply'),
+        el('button', { class: 'btn', title: 'Store the Navigation pushes of Page ' + (S.page + 1) + ' as a template',
+          onclick: e => { e.preventDefault(); navFromCurrent(); } }, 'Save Page ' + (S.page + 1) + ' as template'),
+        tpl.builtin ? null : el('button', { class: 'btn', onclick: e => { e.preventDefault(); navDelete(); } }, 'Delete')),
+      el('p', { class: 'muted' }, S.nav.inFolder
+        ? 'Own templates are stored in ' + NAV_FILE + ' in the scene folder.'
+        : 'Own templates are stored in this browser. With a scene folder open, they are also kept in ' + NAV_FILE + ' there.'));
+  }
+  function runNav(tpl, pages) {
+    let res;
+    commit(() => { res = M.applyNav(S.scene, pages, tpl); });
+    toast('Navigation set: ' + res.pushes + ' pushes on ' + pages.length + (pages.length === 1 ? ' Page' : ' Pages')
+      + (res.replaced ? ', ' + res.replaced + ' other push functions replaced' : ''), res.replaced > 0);
+  }
+  async function navFromCurrent() {
+    const draft = M.navFromPage(S.scene, S.page, '');
+    if (!draft) return toast('Page ' + (S.page + 1) + ' has no Navigation pushes', true);
+    const name = (prompt('Template name (' + M.navTemplateText(draft) + '):', curPage().title || 'Navigation') || '').trim();
+    if (!name) return;
+    draft.name = name;
+    const i = S.nav.list.findIndex(t => t.name === name);
+    if (i >= 0) {
+      if (!confirm('Replace the template "' + name + '"?')) return;
+      S.nav.list[i] = draft;
+      S.nav.sel = i + 1;
+    } else {
+      S.nav.list.push(draft);
+      S.nav.sel = S.nav.list.length;
+    }
+    await saveNav();
+    render();
+    toast('Template "' + name + '" saved');
+  }
+  async function navDelete() {
+    const t = S.nav.list[S.nav.sel - 1];
+    if (!t || !confirm('Delete the template "' + t.name + '"?')) return;
+    S.nav.list.splice(S.nav.sel - 1, 1);
+    S.nav.sel = 0;
+    await saveNav();
+    render();
   }
 
   function bulkPage(pageNums) {
@@ -1661,6 +1780,7 @@
         btn.addEventListener('click', () => loadText(sess.json, sess.name, sess.original, sess.dirty, null, { kind: 'session' }));
       }
     } catch (e) { /* storage unavailable */ }
+    loadNavLocal();
     render();
     initFolder();
     checkForUpdate();
