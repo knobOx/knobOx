@@ -5,6 +5,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- The version number is shown in the top bar after "E16 scene editor".
+
 ## [1.2.0] - 2026-11-11
 
 ### Added

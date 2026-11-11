@@ -61,6 +61,7 @@ code { font-family: ui-monospace, monospace; font-size: 12px; }
 }
 .brand { font-weight: 600; letter-spacing: .2px; display: flex; align-items: center; gap: 8px; white-space: nowrap; min-width: 0; }
 .brand .logo { width: 24px; height: 24px; flex: none; border-radius: 5px; }
+.brand .ver { font-weight: 400; font-size: 11px; opacity: .75; margin-left: -2px; }
 .actions { display: flex; gap: 4px; align-items: center; justify-content: center; }
 .topright { display: flex; gap: 6px; align-items: center; justify-content: flex-end; }
 .sep { width: 1px; height: 18px; background: var(--panel3); margin: 0 4px; }
