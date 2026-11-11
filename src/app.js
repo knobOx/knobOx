@@ -32,6 +32,7 @@
   const LS_SESSION = 'e16ed.session';
   const LS_OPEN = 'e16ed.openSection';
   const LS_SETTINGS = 'e16ed.settings';
+  const LS_THEME = 'e16ed.theme';
 
   function loadSettings() {
     try { return Object.assign({}, JSON.parse(localStorage.getItem(LS_SETTINGS) || '{}')); }
@@ -39,6 +40,28 @@
   }
   function saveSettings() {
     try { localStorage.setItem(LS_SETTINGS, JSON.stringify(S.settings)); } catch (e) { /* storage unavailable */ }
+  }
+  // Theme: 'auto' follows the OS, 'dark' / 'light' are stored and set as data-theme on <html>
+  function applyTheme(t) {
+    const root = document.documentElement;
+    if (t === 'dark' || t === 'light') root.dataset.theme = t;
+    else { t = 'auto'; delete root.dataset.theme; }
+    document.querySelectorAll('#themeSwitch button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.themeSet === t)));
+    return t;
+  }
+  function initTheme() {
+    let t = 'auto';
+    try { t = localStorage.getItem(LS_THEME) || 'auto'; } catch (e) { /* storage unavailable */ }
+    applyTheme(t);
+    $('#themeSwitch').addEventListener('click', ev => {
+      const b = ev.target.closest('button[data-theme-set]');
+      if (!b) return;
+      const t2 = applyTheme(b.dataset.themeSet);
+      try {
+        if (t2 === 'auto') localStorage.removeItem(LS_THEME);
+        else localStorage.setItem(LS_THEME, t2);
+      } catch (e) { /* storage unavailable */ }
+    });
   }
   function saveSession() {
     try {
@@ -419,6 +442,20 @@
   }
 
   // ---------- library: scene folder + device slots ----------
+  // Stroke icons (24x24 viewBox) for the library row buttons
+  const ICONS = {
+    edit: '<path d="M4 20h4L19 9l-4-4L4 16v4z"/><path d="M13.5 6.5l4 4"/>',
+    save: '<path d="M12 4v11"/><path d="M7 10l5 5 5-5"/><path d="M5 20h14"/>',
+    send: '<path d="M12 15V4"/><path d="M7 9l5-5 5 5"/><path d="M5 20h14"/>',
+    trash: '<path d="M4 7h16"/><path d="M10 11v6M14 11v6"/><path d="M6 7l1 13h10l1-13"/><path d="M9 7V4h6v3"/>',
+  };
+  function iconBtn(name, title, attrs) {
+    const b = el('button', Object.assign({ type: 'button', title, 'aria-label': title }, attrs,
+      { class: 'btn small icon' + (attrs && attrs.class ? ' ' + attrs.class : '') }));
+    b.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" '
+      + 'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + ICONS[name] + '</svg>';
+    return b;
+  }
   const L = () => window.E16Library;
   const X = () => window.E16Sysex;
 
@@ -632,8 +669,8 @@
       },
       el('i', { class: 'libcolor', style: { background: M.colorCss(f.color) } }),
       el('span', { class: 'libname' }, f.name.replace(/\.oxie16$/i, '')),
-      el('button', { class: 'btn small', onclick: () => openFromFolder(f) }, 'Edit'),
-      el('button', { class: 'btn small danger', title: 'Delete this file from the scene folder', 'aria-label': 'Delete ' + f.name, onclick: () => deleteFileDialog(f) }, '✕'))));
+      iconBtn('edit', 'Open in the editor', { onclick: () => openFromFolder(f) }),
+      iconBtn('trash', 'Delete this file from the scene folder', { class: 'danger', 'aria-label': 'Delete ' + f.name, onclick: () => deleteFileDialog(f) }))));
     }
     // Drop target for device slots → save to folder.
     files.ondragover = e => { if (e.dataTransfer.types.includes('text/x-e16-slot')) { e.preventDefault(); files.classList.add('dropping'); } };
@@ -668,10 +705,10 @@
       el('span', { class: 'libslot' }, s.slot),
       el('i', { class: 'libcolor', style: { background: M.colorCss(s.color) } }),
       el('span', { class: 'libname' }, s.title, s.scriptName ? el('span', { class: 'muted' }, ' · ' + s.scriptName) : null),
-      el('button', { class: 'btn small', disabled: S.lib.busy, onclick: () => openSlot(s.slot) }, 'Edit'),
-      el('button', { class: 'btn small', disabled: S.lib.busy, title: S.lib.dir ? 'Save to the scene folder' : 'Download as .oxie16', onclick: () => saveSlotToFolder(s.slot) }, 'Save'),
-      S.scene ? el('button', { class: 'btn small', disabled: S.lib.busy, title: 'Send the scene open in the editor to this slot', onclick: () => sendToSlot(S.scene, s.slot, S.scene.title) }, 'Send current') : null,
-      el('button', { class: 'btn small danger', disabled: S.lib.busy, title: 'Delete this scene from the E16 (the slot becomes empty)', 'aria-label': 'Delete slot ' + s.slot, onclick: () => deleteSlotDialog(s.slot) }, '✕'));
+      iconBtn('edit', 'Open in the editor', { disabled: S.lib.busy, onclick: () => openSlot(s.slot) }),
+      iconBtn('save', S.lib.dir ? 'Save to the scene folder' : 'Download as .oxie16', { disabled: S.lib.busy, onclick: () => saveSlotToFolder(s.slot) }),
+      S.scene ? iconBtn('send', 'Send the scene open in the editor to this slot', { disabled: S.lib.busy, onclick: () => sendToSlot(S.scene, s.slot, S.scene.title) }) : null,
+      iconBtn('trash', 'Delete this scene from the E16 (the slot becomes empty)', { class: 'danger', disabled: S.lib.busy, 'aria-label': 'Delete slot ' + s.slot, onclick: () => deleteSlotDialog(s.slot) }));
       return r;
     }));
   }
@@ -747,19 +784,21 @@
     ].filter(Boolean));
   }
 
+  // Icon buttons carry their label as tooltip and accessible name
+  function setTip(b, text) { b.title = text; b.setAttribute('aria-label', text); }
   function renderTop() {
     const has = !!S.scene, src = S.source || {};
     $('#btnSaveLocal').disabled = !has;
-    $('#btnSaveLocal').title = S.fileHandle ? 'Save to ' + S.fileName + ' (Ctrl+S)'
-      : S.lib.dir ? 'Save into the scene folder (Ctrl+S)' : 'Download as .oxie16 (Ctrl+S)';
+    setTip($('#btnSaveLocal'), 'Save to computer: ' + (S.fileHandle ? S.fileName + ' (Ctrl+S)'
+      : S.lib.dir ? 'into the scene folder (Ctrl+S)' : 'download as .oxie16 (Ctrl+S)'));
     $('#btnSaveAs').disabled = !has;
-    $('#btnSaveAs').title = (S.lib.dir ? 'Save into the scene folder under a new name' : 'Save under a new name') + ' (Ctrl+Shift+S)';
+    setTip($('#btnSaveAs'), 'Save as …: ' + (S.lib.dir ? 'into the scene folder under a new name' : 'under a new name') + ' (Ctrl+Shift+S)');
     $('#btnSaveDevice').disabled = !has || !!src.scriptMissing;
-    $('#btnSaveDevice').textContent = 'Save to E16 …';
-    $('#btnSaveDevice').title = src.scriptMissing ? 'Disabled: the script of this scene could not be read from the E16'
-      : src.kind === 'device' ? 'Choose a slot (slot ' + src.slot + ' preselected) and send the scene to the E16' : 'Choose a slot and send the scene to the E16';
+    setTip($('#btnSaveDevice'), 'Save to E16 …: ' + (src.scriptMissing ? 'disabled, the script of this scene could not be read from the E16'
+      : src.kind === 'device' ? 'choose a slot (slot ' + src.slot + ' preselected) and send the scene' : 'choose a slot and send the scene'));
     $('#btnClose').disabled = !has;
-    $('#btnLibrary').textContent = S.view === 'library' && S.scene ? 'Back to editor' : 'Library';
+    setTip($('#btnLibrary'), S.view === 'library' && S.scene ? 'Back to editor' : 'Library');
+    $('#btnLibrary').classList.toggle('on', S.view === 'library');
     $('#btnUndo').disabled = !S.undo.length;
     $('#btnRedo').disabled = !S.redo.length;
     $('#fileInfo').textContent = '';
@@ -796,7 +835,11 @@
       row('Channel', selectEl(chOpts, M.pageChannel(p, S.settings), v => commit(() => M.setPageChannel(p, v, S.settings)))),
       row('Output', selectEl(M.PAGE_OUTPUTS, p.output, v => commit(() => { p.output = v; })),
         'Other values not decoded yet'),
-      row('Nav on swap', navModeEl(), NAV_MODE_HINT),
+    );
+    $('#pageHint').replaceChildren(
+      el('span', { class: 'hint' }, 'Drag a Page onto another to swap (with Alt: copies)'),
+      el('span', { class: 'grow' }),
+      el('label', { class: 'inl', title: NAV_MODE_HINT }, el('span', { class: 'hint' }, 'Nav on swap'), navModeEl()),
     );
   }
   const NAV_MODE_HINT = 'What happens to "Nav → P…" pushes when two Pages are swapped (drag and drop or bulk edit).\n'
@@ -864,7 +907,7 @@
     let box = $('#pasteParts');
     if (!box) {
       box = el('span', { class: 'pasteparts', id: 'pasteParts' });
-      $('#btnPaste').after(box);
+      $('#pasteRow').prepend(box);
     }
     box.replaceChildren(el('span', { class: 'hint' }, 'Paste:'),
       ...PASTE_PARTS.map(([k, label]) => el('label', { class: 'chk', title: 'Include ' + label + ' when pasting' },
@@ -1511,13 +1554,6 @@
     $('#dlg .dlgfoot').hidden = !!ownButtons; // dialogs with their own buttons hide "Close"
     $('#dlg').showModal();
   }
-  function settingsDialog() {
-    const s = S.settings;
-    showDialog([
-      el('h2', null, 'Settings'),
-      el('p', { class: 'muted' }, 'The Page channel is stored directly as MIDI channel 1–16 (verified against the OXI App). Channels in destinations: 0 = Page, 1–16 = MIDI channel.'),
-    ]);
-  }
   function infoDialog() {
     const li = (t, d) => el('li', null, el('b', null, t + ': '), d);
     showDialog([
@@ -1567,19 +1603,20 @@
 
   // ---------- wiring ----------
   function wire() {
+    const openLbl = $('#fileInput').closest('label');
+    openLbl.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('#fileInput').click(); } });
     $('#fileInput').addEventListener('change', e => { const f = e.target.files[0]; if (f && confirmDiscard()) openFile(f); e.target.value = ''; });
     $('#btnLibrary').addEventListener('click', () => showView(S.view === 'library' ? 'editor' : 'library'));
     $('#libPick').addEventListener('click', pickFolder);
     $('#libRefresh').addEventListener('click', refreshFolder);
     $('#libConnect').addEventListener('click', listSlots);
     $('#btnSaveLocal').addEventListener('click', saveLocal);
-    if (!$('#btnSaveAs')) $('#btnSaveLocal').after(el('button', { class: 'btn', id: 'btnSaveAs', disabled: true }, 'Save as …'));
     $('#btnSaveAs').addEventListener('click', saveAs);
     $('#btnSaveDevice').addEventListener('click', saveDevice);
     $('#btnClose').addEventListener('click', closeScene);
     $('#btnUndo').addEventListener('click', undo);
     $('#btnRedo').addEventListener('click', redo);
-    $('#btnSettings').addEventListener('click', settingsDialog);
+    initTheme();
     $('#btnInfo').addEventListener('click', infoDialog);
     $('#selAll').addEventListener('click', () => { S.sel = new Set([...Array(16).keys()]); render(); });
     $('#selNone').addEventListener('click', () => { S.sel = new Set(); render(); });

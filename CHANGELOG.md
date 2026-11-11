@@ -5,6 +5,25 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.1.2] - 2026-11-11
+
+### Added
+
+- Theme switch in the top bar: Auto (follows the system setting), Dark or Light. The choice is remembered in the browser.
+
+### Changed
+
+- New look modeled on the OXI App's scene editor: neutral gray surfaces without borders, centered values in input fields, the active Page and the selected encoder are shown inverted, tabs with a short underline, encoders as knobs with a colored LED ring and a matching color stripe on a device-style panel.
+- Pages view layout: the Page selector, page settings and encoder grid share one column of limited width; the Encoder / Bulk edit panel sits next to it from the top of the Page selector down. Below a window width of about 1140 px the panel moves under the encoders. "Nav on swap" moved into the line under the Page selector, next to the drag hint. All / None sit under the encoder grid next to Copy / Paste. The editor content is centered on wide screens.
+- Top bar: Library, Open, Save to computer, Save as, Save to E16, Close, Undo, Redo and Format info are icon buttons with their label as tooltip; the theme switch shows Auto / Dark / Light as icons. The bar uses the same centered width as the editor: brand left, actions in the middle, theme switch, Format info and GitHub link on the right. The Library button is highlighted while the library is shown.
+- Bulk edit "Set up Push as CC": "Sequential" is the default source. Start CC is the lowest CC free on the channels in scope ("First free" restores this after typing a number). "Skip used CCs" (on by default) skips CCs already used outside the scope on the channel the Push sends on. "Activate Off targets" is off by default.
+- Library: the row buttons Edit, Save, Send current and Delete are icons (pencil, download, upload, trash); the text is shown as a tooltip.
+- "Connect E16" on a page without a secure context (e.g. opened via http://0.0.0.0 or a LAN address) shows a message explaining that Web MIDI needs http://localhost, http://127.0.0.1 or https.
+
+### Removed
+
+- The "Settings" button and dialog. Its only content, the note on Page and destination channels, is part of Format info.
+
 ## [1.1.1] - 2026-11-10
 
 ### Added
@@ -80,7 +99,8 @@ First public release.
 - USB-MIDI protocol description in `docs/PROTOCOL.md`, browser test page with capture fixtures.
 - GitHub link in the app header.
 
-[Unreleased]: https://github.com/knobOx/knobOx/compare/v1.1.1...HEAD
+[Unreleased]: https://github.com/knobOx/knobOx/compare/v1.1.2...HEAD
+[1.1.2]: https://github.com/knobOx/knobOx/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/knobOx/knobOx/compare/v1.0.1...v1.1.1
 [1.0.1]: https://github.com/knobOx/knobOx/compare/v1.0...v1.0.1
 [1.0]: https://github.com/knobOx/knobOx/releases/tag/v1.0

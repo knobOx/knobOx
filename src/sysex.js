@@ -301,6 +301,7 @@
   // ---------- Web MIDI ----------
 
   async function midiAccess() {
+    if (root.isSecureContext === false) throw new Error('Web MIDI needs a secure context. Open the editor via http://localhost or http://127.0.0.1 (not 0.0.0.0 or a LAN address) or via https.');
     if (!root.navigator || !navigator.requestMIDIAccess) throw new Error('This browser has no Web MIDI support (use Chrome, Chromium or Edge).');
     return navigator.requestMIDIAccess({ sysex: true });
   }
