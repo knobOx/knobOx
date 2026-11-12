@@ -5,9 +5,31 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-11-12
+
 ### Added
 
 - The version number is shown in the top bar after "E16 scene editor".
+- Built-in help: the ? button in the top bar opens an overlay with an index on the left and the text on the right. It explains the whole app for musicians without GitHub: getting started, Library, editor, Encoder / Bulk edit / Pages tabs, CC overview, Scene tab, files and folders, tips for the E16 (bipolar knobs, values sent on scene load), troubleshooting and the file format. Esc or a click outside closes it. On phones the index becomes a bar above the text.
+- Library "On computer": a clone button next to each file copies it under a new name in the scene folder. The name suggested is `<name>_clone` and can be changed; an existing file is never overwritten. The scene inside, including its title, stays unchanged.
+- "Page library" (Pages tab): saves the current Page or a Page range under a name and inserts it into any scene from a chosen Page, to copy Pages between scenes. Navigation push targets move by the same distance as the Pages. With a scene folder open, each entry is a file in `knobOx/E16/pages/` (file name without spaces); without a folder, entries are kept in the browser and moved to the folder once one is opened.
+
+### Changed
+
+- The "Format info" button is replaced by the help button (?); its content is the help section "About and file format".
+- README shortened to the basics; the details are in the built-in help. The outdated screenshots are removed, the field table of the file format moved to `docs/FORMAT.md`.
+- Bulk edit scope "Page range" → "Encoders: Chosen positions" shows a 4×4 checkbox matrix laid out like the encoder grid, with All, None and "From grid selection". The positions no longer depend on the selection in the grid; switching to "Chosen positions" starts from it once.
+- Bulk edit "Distribute CCs" fills several targets in one go: Dest 1, Dest 2 and Push are checkboxes. "Sequence" sets the order: Page by page (on each Page Dest 1, then Dest 2, then Push), target by target (Dest 1 on all Pages first) or encoder by encoder (E1 Dest 1, Dest 2, Push, then E2). "Set channel" is "Page" by default, so the CCs follow the Page channel. Navigation and other push functions keep their function and use no CC number. A Push switched from Off to CC with P.Val and R.Val 0 gets P.Val 127. Start CC 0 shows a note that CC 0 is Bank Select.
+- "Distribute CCs" counts per Page channel: every Page channel starts at the start CC, Pages on the same channel continue each other. Pages on different channels therefore each get the full CC range. Actions with their own channel count with the channel of their Page. The preview shows the channel of every Page.
+- "Distribute CCs" option "Remap used": renumbers every CC action in use in the scope (Dest 1, Dest 2 and Push) from the start CC in the chosen sequence, without gaps. Their old numbers are dropped and do not block anything. Off and Navigation stay as they are. CC actions left without a CC because the CCs ran out are switched Off, so no old number stays behind as a duplicate; the preview shows how many. While it is on, the targets and "Activate Off" are greyed out.
+- "Distribute CCs": "Skip used" is on by default, so a run never reuses a CC that another action on the same channel already has (e.g. Dest 1 CC 31 and Push CC 31 after two runs with the same start). The preview warns when a CC would end up on two actions of the same channel.
+- "Distribute CCs" shows a preview of the current settings before applying them: a summary (number of CCs, targets, encoders per Page) and one cell per Page, laid out like the E16 Page selector, with the CCs that Page gets. If the CCs run out, it names the first Page, encoder and target without a CC.
+- New side panel tab "Pages" next to Encoder and Bulk edit, with its own scope (current Page or Page range). It holds the page-level actions Page library, Navigation and Copy / swap Page, which moved there from Bulk edit.
+- Own navigation templates are stored in `knobOx/E16/navigation.json` in the scene folder. A `knobox-navigation.json` in the folder root (v1.2.0) is taken over when the new file does not exist yet.
+
+### Fixed
+
+- "Distribute CCs": a target that gets no CC because the CCs ran out stays exactly as it was. Before, "Activate Off" and "Set channel" still changed it, so Off targets turned into CC 0.
 
 ## [1.2.0] - 2026-11-11
 
@@ -121,7 +143,8 @@ First public release.
 - USB-MIDI protocol description in `docs/PROTOCOL.md`, browser test page with capture fixtures.
 - GitHub link in the app header.
 
-[Unreleased]: https://github.com/knobOx/knobOx/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/knobOx/knobOx/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/knobOx/knobOx/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/knobOx/knobOx/compare/v1.1.2...v1.2.0
 [1.1.2]: https://github.com/knobOx/knobOx/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/knobOx/knobOx/compare/v1.0.1...v1.1.1

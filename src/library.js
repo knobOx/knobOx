@@ -90,12 +90,35 @@
     await (await sceneDir(dir)).removeEntry(name);
   }
 
-  /* Text of <name> in the chosen folder itself (not the "Scenes" subfolder), or null if missing. */
-  async function readRootFile(dir, name) {
-    try { return await (await (await dir.getFileHandle(name)).getFile()).text(); } catch (e) { return null; }
+  /*
+   * knobOx's own files live in a "knobOx" folder next to the scenes, one subfolder per device
+   * (e.g. "knobOx/E16/pages"). Paths are arrays of folder names below the chosen folder.
+   */
+  async function subDir(dir, parts, create) {
+    let d = dir;
+    for (const part of parts) d = await d.getDirectoryHandle(part, { create: !!create });
+    return d;
   }
-  async function writeRootFile(dir, name, text) {
-    await write(await dir.getFileHandle(name, { create: true }), text);
+  /* Text of <name> in the folder at parts, or null if the folder or file is missing. */
+  async function readFileAt(dir, parts, name) {
+    try { return await (await (await (await subDir(dir, parts, false)).getFileHandle(name)).getFile()).text(); }
+    catch (e) { return null; }
+  }
+  async function writeFileAt(dir, parts, name, text) {
+    await write(await (await subDir(dir, parts, true)).getFileHandle(name, { create: true }), text);
+  }
+  async function removeFileAt(dir, parts, name) {
+    await (await subDir(dir, parts, false)).removeEntry(name);
+  }
+  /* [{ name, text }] of the .json files in the folder at parts; empty if the folder is missing. */
+  async function listJsonAt(dir, parts) {
+    let d;
+    try { d = await subDir(dir, parts, false); } catch (e) { return []; }
+    const out = [];
+    for await (const [name, h] of d.entries()) {
+      if (h.kind === 'file' && /\.json$/i.test(name)) out.push({ name, text: await (await h.getFile()).text() });
+    }
+    return out.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
   }
 
   /* File name for a scene title, keeping it safe on all platforms. */
@@ -126,5 +149,5 @@
     return { browser: 'this browser', steps: null };
   }
 
-  root.E16Library = { supported, pickFolder, storedFolder, forget, list, read, write, exists, save, remove, readRootFile, writeRootFile, fileNameFor, enableHint };
+  root.E16Library = { supported, pickFolder, storedFolder, forget, list, read, write, exists, save, remove, readFileAt, writeFileAt, removeFileAt, listJsonAt, fileNameFor, enableHint };
 })(window);

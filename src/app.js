@@ -21,13 +21,15 @@
     side: 'edit',
     ovChannel: null,
     ovOpts: { d1: true, d2: true, push: true, lsb: true },
-    bulk: { scope: 'sel', from: 1, to: 12, order: 'row', selPos: false },
+    bulk: { scope: 'sel', from: 1, to: 12, order: 'row', selPos: false, pos: new Set() },  // pos: encoder positions for selPos
+    pscope: { mode: 'page', from: 1, to: 12 },  // Pages tab: current Page or a Page range
     settings: loadSettings(),
     view: 'library',      // 'library' | 'editor'
     fileHandle: null,     // set when the scene was opened from the scene folder
     lib: { dir: null, pending: null, files: [], slots: null, busy: false, status: '' },
     midi: null,           // { access, input, output }
     nav: { list: [], sel: 0, inFolder: false },  // user navigation templates; sel indexes [built-in, ...list]
+    plib: { entries: [], sel: 0, at: 1, inFolder: false },  // page library: [{ file, entry }]
   };
   const UNDO_MAX = 200;
   const LS_SESSION = 'e16ed.session';
@@ -35,7 +37,14 @@
   const LS_SETTINGS = 'e16ed.settings';
   const LS_THEME = 'e16ed.theme';
   const LS_NAV = 'e16ed.navTemplates';
-  const NAV_FILE = 'knobox-navigation.json';
+  const LS_PAGES = 'e16ed.pageLibrary';
+  // knobOx's own files in the scene folder: knobOx/<device>/..., no spaces in folder or file names.
+  const E16_DIR = ['knobOx', 'E16'];
+  const NAV_FILE = 'navigation.json';
+  const NAV_PATH = 'knobOx/E16/' + NAV_FILE;
+  const NAV_FILE_OLD = 'knobox-navigation.json';  // location up to v1.2.0, in the folder root
+  const PAGES_DIR = ['knobOx', 'E16', 'pages'];
+  const PAGES_PATH = 'knobOx/E16/pages';
 
   function loadSettings() {
     try { return Object.assign({}, JSON.parse(localStorage.getItem(LS_SETTINGS) || '{}')); }
@@ -144,7 +153,9 @@
     if (!e.target.closest('.colorpick')) document.querySelectorAll('.cpop').forEach(x => { x.hidden = true; });
   });
   function row(label, control, hint) {
-    return el('label', { class: 'frow', title: hint || null }, el('span', { class: 'flabel' }, label), control);
+    // A control that holds its own labels (checkbox groups) must not sit inside another <label>.
+    const tag = control && control.querySelector && control.querySelector('label') ? 'div' : 'label';
+    return el(tag, { class: 'frow', title: hint || null }, el('span', { class: 'flabel' }, label), control);
   }
 
   // ---------- undo / commit ----------
@@ -439,7 +450,7 @@
   /* The scene arrived and was verified, only the (empty) script block got no reply. */
   function scriptBlockNote() {
     return 'Checked by reading it back: settings and all pages arrived. Only the empty script block was not confirmed'
-      + (onLinux() ? ' (Linux: the MIDI output buffer is too small, see README)' : '')
+      + (onLinux() ? ' (Linux: the MIDI output buffer is too small, see Help → Troubleshooting)' : '')
       + '. If this slot had a script before, it may still be there.';
   }
   function transferError(e) {
@@ -452,6 +463,7 @@
     edit: '<path d="M4 20h4L19 9l-4-4L4 16v4z"/><path d="M13.5 6.5l4 4"/>',
     save: '<path d="M12 4v11"/><path d="M7 10l5 5 5-5"/><path d="M5 20h14"/>',
     send: '<path d="M12 15V4"/><path d="M7 9l5-5 5 5"/><path d="M5 20h14"/>',
+    copy: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/>',
     trash: '<path d="M4 7h16"/><path d="M10 11v6M14 11v6"/><path d="M6 7l1 13h10l1-13"/><path d="M9 7V4h6v3"/>',
   };
   function iconBtn(name, title, attrs) {
@@ -473,8 +485,9 @@
 
   // ---------- navigation templates ----------
   /*
-   * User templates live in the browser (localStorage) and, once a scene folder is open, in NAV_FILE
+   * User templates live in the browser (localStorage) and, once a scene folder is open, in NAV_PATH
    * in that folder. The file wins when both exist; without a file the browser's templates are written to it.
+   * A file at the old location (NAV_FILE_OLD in the folder root) is read when the new one is missing.
    */
   function loadNavLocal() {
     try { S.nav.list = M.cleanNavTemplates(JSON.parse(localStorage.getItem(LS_NAV) || '[]')); } catch (e) { S.nav.list = []; }
@@ -482,29 +495,77 @@
   async function loadNavFolder() {
     if (!S.lib.dir) { S.nav.inFolder = false; return; }
     try {
-      const text = await L().readRootFile(S.lib.dir, NAV_FILE);
+      let text = await L().readFileAt(S.lib.dir, E16_DIR, NAV_FILE);
+      if (text === null) {
+        text = await L().readFileAt(S.lib.dir, [], NAV_FILE_OLD);
+        if (text !== null) await L().writeFileAt(S.lib.dir, E16_DIR, NAV_FILE, text);
+      }
       if (text !== null) {
         S.nav.list = M.cleanNavTemplates(JSON.parse(text));
         try { localStorage.setItem(LS_NAV, JSON.stringify(S.nav.list)); } catch (e) { /* storage unavailable */ }
       } else if (S.nav.list.length) {
-        await L().writeRootFile(S.lib.dir, NAV_FILE, JSON.stringify(S.nav.list, null, 2));
+        await L().writeFileAt(S.lib.dir, E16_DIR, NAV_FILE, JSON.stringify(S.nav.list, null, 2));
       }
       S.nav.inFolder = true;
     } catch (e) {
       S.nav.inFolder = false;
-      toast('Could not read ' + NAV_FILE + ': ' + e.message, true);
+      toast('Could not read ' + NAV_PATH + ': ' + e.message, true);
     }
   }
   async function saveNav() {
     try { localStorage.setItem(LS_NAV, JSON.stringify(S.nav.list)); } catch (e) { /* storage unavailable */ }
     if (!S.lib.dir) return;
-    try { await L().writeRootFile(S.lib.dir, NAV_FILE, JSON.stringify(S.nav.list, null, 2)); S.nav.inFolder = true; }
-    catch (e) { toast('Could not write ' + NAV_FILE + ': ' + e.message, true); }
+    try { await L().writeFileAt(S.lib.dir, E16_DIR, NAV_FILE, JSON.stringify(S.nav.list, null, 2)); S.nav.inFolder = true; }
+    catch (e) { toast('Could not write ' + NAV_PATH + ': ' + e.message, true); }
+  }
+
+  // ---------- page library ----------
+  /*
+   * Entries of one or more pages (M.pagesToEntry). With a scene folder open they are files in PAGES_PATH,
+   * one per entry; entries kept in the browser before are moved there. Without a folder they live in localStorage.
+   */
+  function pageFileName(name) {
+    const base = String(name || 'pages').trim().replace(/\s+/g, '_').replace(/[\\/:*?"<>|]+/g, '_') || 'pages';
+    return base + '.json';
+  }
+  function parseEntry(text) {
+    try { const x = JSON.parse(text); return M.checkPageEntry(x) ? null : x; } catch (e) { return null; }
+  }
+  function loadPagesLocal() {
+    let list = [];
+    try { list = JSON.parse(localStorage.getItem(LS_PAGES) || '[]'); } catch (e) { list = []; }
+    S.plib.entries = (Array.isArray(list) ? list : []).filter(x => !M.checkPageEntry(x)).map(x => ({ file: pageFileName(x.name), entry: x }));
+    S.plib.inFolder = false;
+  }
+  function savePagesLocal() {
+    try { localStorage.setItem(LS_PAGES, JSON.stringify(S.plib.entries.map(x => x.entry))); return true; }
+    catch (e) { toast('Could not store the page library in the browser: ' + e.message, true); return false; }
+  }
+  async function loadPagesFolder() {
+    if (!S.lib.dir) return loadPagesLocal();
+    try {
+      // Browser entries from before the folder was opened go into the folder once.
+      let local = [];
+      try { local = JSON.parse(localStorage.getItem(LS_PAGES) || '[]'); } catch (e) { local = []; }
+      for (const x of (Array.isArray(local) ? local : []).filter(x => !M.checkPageEntry(x))) {
+        if (await L().readFileAt(S.lib.dir, PAGES_DIR, pageFileName(x.name)) === null) {
+          await L().writeFileAt(S.lib.dir, PAGES_DIR, pageFileName(x.name), JSON.stringify(x, null, 2));
+        }
+      }
+      try { localStorage.removeItem(LS_PAGES); } catch (e) { /* storage unavailable */ }
+      const files = await L().listJsonAt(S.lib.dir, PAGES_DIR);
+      S.plib.entries = files.map(f => ({ file: f.name, entry: parseEntry(f.text) })).filter(x => x.entry);
+      S.plib.inFolder = true;
+    } catch (e) {
+      toast('Could not read ' + PAGES_PATH + ': ' + e.message, true);
+      loadPagesLocal();
+    }
   }
 
   async function refreshFolder() {
     if (!S.lib.dir) { renderLibrary(); return; }
     await loadNavFolder();
+    await loadPagesFolder();
     try { S.lib.files = await L().list(S.lib.dir); }
     catch (e) { S.lib.files = []; toast('Could not read the folder: ' + e.message + (onLinux() ? ' ' + FOLDER_FLATPAK : ''), true); }
     renderLibrary();
@@ -638,6 +699,33 @@
         el('button', { class: 'btn', type: 'button', onclick: close }, 'Cancel')),
     ].filter(Boolean), true);
   }
+  /* Clone a file of the scene folder under a new name (default: <name>_clone). The content stays unchanged. */
+  function cloneFileDialog(f) {
+    const close = () => $('#dlg').close();
+    const base = f.name.replace(/\.oxie16$/i, '');
+    const input = el('input', { type: 'text', value: base + '_clone' });
+    const run = async () => {
+      let name = input.value.trim().replace(/\.oxie16$/i, '');
+      if (!name) return;
+      name += '.oxie16';
+      if (await L().exists(S.lib.dir, name)) { toast(name + ' already exists. Choose another name.', true); input.focus(); return; }
+      close();
+      try { await L().save(S.lib.dir, name, await L().read(f.handle)); }
+      catch (e) { toast('Could not clone ' + f.name + ': ' + e.message + (onLinux() ? ' ' + FOLDER_FLATPAK : ''), true); return; }
+      toast(f.name + ' cloned as ' + name);
+      await refreshFolder();
+    };
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); run(); } });
+    showDialog([
+      el('h2', null, 'Clone "' + f.name + '"'),
+      el('p', null, 'New file name in the folder "' + S.lib.dir.name + '". The scene inside, including its title, stays unchanged.'),
+      row('File name', input),
+      el('div', { class: 'dlgactions' },
+        el('button', { class: 'btn primary', type: 'button', onclick: run }, 'Clone'),
+        el('button', { class: 'btn', type: 'button', onclick: close }, 'Cancel')),
+    ], true);
+    setTimeout(() => { input.focus(); input.select(); }, 0);
+  }
   async function deleteFile(f) {
     try { await L().remove(S.lib.dir, f.name); }
     catch (e) { toast('Could not delete ' + f.name + ': ' + e.message + (onLinux() ? ' ' + FOLDER_FLATPAK : ''), true); return; }
@@ -708,6 +796,7 @@
       el('i', { class: 'libcolor', style: { background: M.colorCss(f.color) } }),
       el('span', { class: 'libname' }, f.name.replace(/\.oxie16$/i, '')),
       iconBtn('edit', 'Open in the editor', { onclick: () => openFromFolder(f) }),
+      iconBtn('copy', 'Clone this file in the scene folder', { 'aria-label': 'Clone ' + f.name, onclick: () => cloneFileDialog(f) }),
       iconBtn('trash', 'Delete this file from the scene folder', { class: 'danger', 'aria-label': 'Delete ' + f.name, onclick: () => deleteFileDialog(f) }))));
     }
     // Drop target for device slots → save to folder.
@@ -770,8 +859,8 @@
     const out = [];
     if (b.scope === 'pages') {
       const from = Math.max(1, Math.min(b.from, b.to)), to = Math.min(S.scene.pages.length, Math.max(b.from, b.to));
-      // With selPos, only the encoder positions selected on the current Page, on every Page of the range.
-      const idx = b.selPos && S.sel.size ? selected() : [...Array(16).keys()];
+      // With selPos, only the positions ticked in the Scope matrix, on every Page of the range.
+      const idx = b.selPos ? [...b.pos].sort((x, y) => x - y) : [...Array(16).keys()];
       for (let p = from - 1; p < to; p++) M.orderIndices(idx, b.order).forEach(e => out.push({ p, e }));
     } else {
       const idx = b.scope === 'sel' && S.sel.size ? selected() : [...Array(curPage().encoders.length).keys()];
@@ -782,7 +871,7 @@
   function scopeText() {
     const b = S.bulk;
     if (b.scope === 'pages') return 'Pages ' + Math.min(b.from, b.to) + '–' + Math.max(b.from, b.to)
-      + (b.selPos && S.sel.size ? ', encoders ' + selected().map(e => e + 1).join(', ') : '');
+      + (b.selPos ? ', encoders ' + ([...b.pos].sort((x, y) => x - y).map(e => e + 1).join(', ') || 'none') : '');
     if (b.scope === 'sel' && S.sel.size) return S.sel.size + ' selected encoders';
     return 'whole Page ' + (S.page + 1);
   }
@@ -974,7 +1063,8 @@
     document.querySelectorAll('#sideTabs button').forEach(b => b.classList.toggle('active', b.dataset.side === S.side));
     $('#side-edit').hidden = S.side !== 'edit';
     $('#side-bulk').hidden = S.side !== 'bulk';
-    if (S.side === 'edit') renderEditor(); else renderBulk();
+    $('#side-pages').hidden = S.side !== 'pages';
+    if (S.side === 'edit') renderEditor(); else if (S.side === 'pages') renderPagesTab(); else renderBulk();
     makeAccordion($('#side-' + S.side), S.side);
   }
 
@@ -983,7 +1073,7 @@
    * clicking the open one closes it. General and Scope stay open. The open section per pane is remembered.
    */
   const ACC_PINNED = ['General', 'Scope'];
-  const ACC_DEFAULT = { edit: 'Dest 1', bulk: 'Distribute CCs' };
+  const ACC_DEFAULT = { edit: 'Dest 1', bulk: 'Distribute CCs', pages: 'Page library' };
   let openSection;
   try { openSection = Object.assign({}, ACC_DEFAULT, JSON.parse(localStorage.getItem(LS_OPEN) || '{}')); } catch (e) { openSection = Object.assign({}, ACC_DEFAULT); }
   function makeAccordion(pane, prefix) {
@@ -1095,7 +1185,8 @@
 
   // ---------- bulk tools ----------
   const bulkState = {
-    cc: { role: 'd1', start: 1, step: 1, skipUsed: false, setTypeIfOff: true, keepOther: true, channel: 'keep' },
+    // roles: targets that get CCs; seq: order over pages, targets and encoders (see ccTargets)
+    cc: { roles: { d1: true, d2: false, push: false }, seq: 'page', start: 1, step: 1, skipUsed: true, setTypeIfOff: true, keepOther: true, remap: false, channel: 0 },
     push: { source: 'seq', offset: 16, start: 1, startAuto: true, skipUsed: true, mode: 0, pval: 127, rval: 0, copyChannel: true, setTypeIfOff: false, keepOther: true },
     field: { role: 'd1', key: 'type', value: 3 },
     name: { pattern: 'CC{cc}', start: 1, target: 'both', perPage: false },
@@ -1110,6 +1201,23 @@
     push: ['type', 'channel', 'output', 'mode', 'lower', 'upper', 'scriptId'],
   };
 
+  /* 4x4 checkboxes for the encoder positions used on every Page of the range, laid out like the grid. */
+  function posMatrix() {
+    const b = S.bulk;
+    const box = e => el('label', { class: 'posbox', title: 'Encoder ' + (e + 1) },
+      el('input', { type: 'checkbox', checked: b.pos.has(e), onchange: ev => { ev.target.checked ? b.pos.add(e) : b.pos.delete(e); render(); } }),
+      el('span', null, String(e + 1)));
+    const set = idx => { b.pos = new Set(idx); render(); };
+    return el('div', { class: 'posmatrix' },
+      el('div', { class: 'posgrid' }, ...[...Array(16).keys()].map(box)),
+      el('div', { class: 'inl' },
+        el('button', { class: 'btn small', type: 'button', onclick: e => { e.preventDefault(); set([...Array(16).keys()]); } }, 'All'),
+        el('button', { class: 'btn small', type: 'button', onclick: e => { e.preventDefault(); set([]); } }, 'None'),
+        el('button', { class: 'btn small', type: 'button', title: 'Take the encoders selected in the grid',
+          onclick: e => { e.preventDefault(); set(S.sel); } }, 'From grid selection')),
+      b.pos.size ? null : el('p', { class: 'warn' }, 'No position ticked: nothing is changed.'));
+  }
+
   function renderBulk() {
     const pane = $('#side-bulk');
     const b = S.bulk;
@@ -1122,46 +1230,144 @@
         { sel: 0, page: 1, pages: 2 }[b.scope], v => { b.scope = ['sel', 'page', 'pages'][v]; render(); })),
       b.scope === 'pages' ? row('From / to', el('span', { class: 'inl' },
         selectEl(pageNums, b.from, v => { b.from = v; render(); }), selectEl(pageNums, b.to, v => { b.to = v; render(); }))) : null,
-      b.scope === 'pages' ? row('Encoders', selectEl({ 0: { label: 'All 16', sure: true }, 1: { label: 'Selected positions', sure: true } },
-        b.selPos ? 1 : 0, v => { b.selPos = !!v; render(); }),
-        'Selected positions: the encoders selected in the grid, at the same positions on every Page of the range') : null,
-      b.scope === 'pages' && b.selPos && !S.sel.size ? el('p', { class: 'muted' }, 'No encoders selected: all 16 are used.') : null,
+      b.scope === 'pages' ? row('Encoders', selectEl({ 0: { label: 'All 16', sure: true }, 1: { label: 'Chosen positions', sure: true } },
+        b.selPos ? 1 : 0, v => {
+          b.selPos = !!v;
+          // Start from the grid selection when switching to chosen positions with none ticked yet.
+          if (b.selPos && !b.pos.size) b.pos = new Set(S.sel);
+          render();
+        }),
+        'Chosen positions: the encoder positions ticked below, on every Page of the range') : null,
+      b.scope === 'pages' && b.selPos ? posMatrix() : null,
       row('Order', selectEl({ 0: { label: 'By row (1-2-3-4)', sure: true }, 1: { label: 'By column (1-5-9-13)', sure: true } },
         b.order === 'col' ? 1 : 0, v => { b.order = v ? 'col' : 'row'; render(); })),
       el('p', { class: 'muted' }, 'Current: ' + scopeText() + ' (' + targets().length + ' encoders)'),
     );
 
-    pane.replaceChildren(scope, bulkCC(), bulkPush(), bulkNav(), bulkField(), bulkName(), bulkColor(), bulkPage(pageNums));
+    pane.replaceChildren(scope, bulkCC(), bulkPush(), bulkField(), bulkName(), bulkColor());
   }
 
-  const roleOpts = { 0: { label: 'Dest 1', sure: true }, 1: { label: 'Dest 2', sure: true }, 2: { label: 'Push', sure: true } };
-  const roleIdx = r => M.ROLES.indexOf(r);
 
+  /* Checkbox with label for an option of "Distribute CCs". */
+  function optBox(key, label, hint, disabled) {
+    const o = bulkState.cc;
+    return el('label', { class: 'chk' + (disabled ? ' disabled' : ''), title: hint },
+      el('input', { type: 'checkbox', checked: o[key], disabled: !!disabled, onchange: e => { o[key] = e.target.checked; render(); } }), label);
+  }
   function bulkCC() {
     const o = bulkState.cc;
     const chOpts = { '-1': { label: 'Unchanged', sure: true }, 0: { label: 'Page', sure: true } };
     for (let i = 1; i <= 16; i++) chOpts[i] = { label: String(i), sure: true };
+    // With remap every CC action in use is renumbered, so all targets count.
+    const roleBox = r => el('label', { class: 'chk' + (o.remap ? ' disabled' : ''), title: o.remap ? 'Remap used includes Dest 1, Dest 2 and Push' : null },
+      el('input', { type: 'checkbox', checked: o.remap || o.roles[r], disabled: o.remap, onchange: e => { o.roles[r] = e.target.checked; render(); } }), M.ROLE_LABEL[r]);
+    const nRoles = o.remap ? M.ROLES.length : M.ROLES.filter(r => o.roles[r]).length;
+    const seqOpts = {
+      0: { label: 'Page by page (P1: Dest 1, Dest 2, Push, then P2 …)', sure: true },
+      1: { label: 'Target by target (Dest 1 on all Pages, then Dest 2 …)', sure: true },
+      2: { label: 'Encoder by encoder (E1: Dest 1, Dest 2, Push, then E2 …)', sure: true },
+    };
+    const seqKeys = ['page', 'role', 'enc'];
     return el('fieldset', null, el('legend', null, 'Distribute CCs'),
-      row('Target', selectEl(roleOpts, roleIdx(o.role), v => { o.role = M.ROLES[v]; })),
-      row('Start CC', numEl(o.start, v => { o.start = v; }, { min: 0, max: 127, class: 'w-num' })),
-      row('Step', numEl(o.step, v => { o.step = v; }, { min: 1, max: 127, class: 'w-num' })),
-      row('Set channel', selectEl(chOpts, o.channel === 'keep' ? -1 : o.channel, v => { o.channel = v === -1 ? 'keep' : v; })),
-      row('Skip used CCs', el('input', { type: 'checkbox', checked: o.skipUsed, onchange: e => { o.skipUsed = e.target.checked; } }),
-        'Skips CCs that are already used outside the scope on the effective channel'),
-      row('Activate Off targets', el('input', { type: 'checkbox', checked: o.setTypeIfOff, onchange: e => { o.setTypeIfOff = e.target.checked; } }),
-        'Changes type Off to CC Abs (Dest) or CC (Push)'),
-      row('Keep navigation & other functions', el('input', { type: 'checkbox', checked: o.keepOther, onchange: e => { o.keepOther = e.target.checked; } }),
-        'Skips actions that are neither Off nor CC, e.g. Navigation, Script, Note or PC. They keep their function and use no CC number.'),
+      row('Targets', el('span', { class: 'inl' }, ...M.ROLES.map(roleBox))),
+      nRoles > 1 ? row('Sequence', selectEl(seqOpts, seqKeys.indexOf(o.seq), v => { o.seq = seqKeys[v]; render(); })) : null,
+      row('Start / step', el('span', { class: 'inl', title: 'Counted per Page channel: every Page channel starts at the start CC, Pages on the same channel continue each other.' },
+        numEl(o.start, v => { o.start = v; render(); }, { min: 0, max: 127, class: 'w-num', title: 'First CC number' }),
+        numEl(o.step, v => { o.step = v; render(); }, { min: 1, max: 127, class: 'w-num', title: 'Distance between two CCs' }))),
+      o.start === 0 ? el('p', { class: 'muted' }, 'CC 0 is Bank Select (MSB) in the MIDI standard. Devices that react to it may switch banks.') : null,
+      row('Set channel', selectEl(chOpts, o.channel === 'keep' ? -1 : o.channel, v => { o.channel = v === -1 ? 'keep' : v; render(); })),
+      row('Options', el('span', { class: 'inl' },
+        optBox('remap', 'Remap used', 'Renumbers every CC action in use in the scope (Dest 1, Dest 2 and Push) from the start CC in the chosen sequence. Their old numbers are dropped, Off and Navigation stay as they are. CC actions left without a CC are switched Off.'),
+        optBox('skipUsed', 'Skip used', 'Skips CCs that are already used outside the scope on the effective channel'),
+        optBox('setTypeIfOff', 'Activate Off', o.remap ? 'Not used with "Remap used"' : 'Changes type Off to CC Abs (Dest) or CC (Push)', o.remap),
+        optBox('keepOther', 'Keep navigation', 'Skips actions that are neither Off nor CC, e.g. Navigation, Script, Note or PC. They keep their function and use no CC number.'))),
+      ccPreview(),
       el('button', { class: 'btn primary', onclick: e => { e.preventDefault(); runCC(); } }, 'Distribute'));
+  }
+  /*
+   * Result of the current settings, worked out on a copy of the scene: a summary line and one cell per
+   * Page in scope (laid out like the E16 Page selector) with the CCs that Page gets.
+   */
+  function ccPreview() {
+    const t = ccTargets();
+    if (!t.length) return el('div', { class: 'ccpreview' }, el('b', null, 'Preview'), el('p', null, 'No target chosen.'));
+    const o = bulkState.cc;
+    const copy = M.deepClone(S.scene);
+    const res = M.distributeCC(copy, S.settings, t, o);
+    const dups = ccDuplicates(copy, t);
+    const roles = (o.remap ? M.ROLES : M.ROLES.filter(r => o.roles[r])).map(r => M.ROLE_LABEL[r]).join(' + ');
+    const pages = [...new Set(t.map(x => x.p))];
+    const encs = new Set(t.filter(x => x.p === pages[0]).map(x => x.e)).size;
+    const head = res.assigned + ' CCs for ' + roles + ', ' + encs + (encs === 1 ? ' encoder' : ' encoders')
+      + (pages.length > 1 ? ' on each of ' + pages.length + ' Pages' : ' on Page ' + (pages[0] + 1))
+      + (res.kept ? '. ' + res.kept + ' kept (navigation or other function)' : '')
+      + (res.offSkipped ? '. ' + res.offSkipped + ' Off left out' : '') + '.';
+    const cells = pages.map(p => {
+      const r = res.pages[p];
+      return el('div', { class: 'ccpcell' + (r ? '' : ' none') },
+        el('span', { class: 'ccpp' }, 'P' + (p + 1) + ' · Ch' + M.pageChannel(S.scene.pages[p])),
+        el('span', null, r ? (r[0] === r[1] ? 'CC ' + r[0] : 'CC ' + r[0] + '–' + r[1]) : 'no CC'));
+    });
+    const nChans = new Set(pages.map(p => M.pageChannel(S.scene.pages[p]))).size;
+    const nodes = [el('b', null, 'Preview'), el('p', null, head),
+      nChans > 1 ? el('p', null, 'Counted per Page channel: each of the ' + nChans + ' channels starts at CC ' + (o.start | 0) + '.') : null,
+      el('div', { class: 'ccpgrid' }, ...cells)];
+    if (dups.length) {
+      nodes.push(el('p', { class: 'warn' }, dups.length + (dups.length === 1 ? ' CC is' : ' CCs are') + ' used twice afterwards: '
+        + dups.slice(0, 3).join('; ') + (dups.length > 3 ? ' …' : '') + '. "Skip used" avoids this.'));
+    }
+    if (res.overflow) {
+      const f = res.firstOverflow;
+      nodes.push(el('p', { class: 'warn' }, 'CCs run out at P' + (f.p + 1) + ' E' + (f.e + 1) + ' ' + M.ROLE_LABEL[f.role] + ': '
+        + res.overflow + (res.overflow === 1 ? ' target gets' : ' targets get') + ' no CC'
+        + (res.cleared ? ', ' + res.cleared + ' of them are switched Off' : '') + '.'));
+    }
+    return el('div', { class: 'ccpreview' }, ...nodes);
+  }
+  /*
+   * Encoders in scope combined with the chosen targets, in the order the CCs are given:
+   * 'page' = per Page, each target over the Page's encoders; 'role' = each target over all Pages;
+   * 'enc' = per encoder, its targets one after another.
+   */
+  function ccTargets() {
+    const o = bulkState.cc;
+    const roles = o.remap ? M.ROLES.slice() : M.ROLES.filter(r => o.roles[r]);
+    const t = targets();
+    const out = [];
+    if (o.seq === 'role') roles.forEach(role => t.forEach(x => out.push({ p: x.p, e: x.e, role })));
+    else if (o.seq === 'enc') t.forEach(x => roles.forEach(role => out.push({ p: x.p, e: x.e, role })));
+    else {
+      [...new Set(t.map(x => x.p))].forEach(p => roles.forEach(role =>
+        t.filter(x => x.p === p).forEach(x => out.push({ p, e: x.e, role }))));
+    }
+    return out;
+  }
+  /*
+   * CCs that end up on more than one action on the same channel, where at least one of them is a target
+   * of this run. Returns texts like "Ch6 CC 31: P1 E8 Dest 1, P1 E8 Push".
+   */
+  function ccDuplicates(scene, t) {
+    const mine = new Set(t.map(x => x.p + '/' + x.e + '/' + x.role));
+    const out = [];
+    M.collectCCUses(scene, S.settings).forEach((list, key) => {
+      if (M.distinctOwners(list) < 2 || !list.some(u => mine.has(u.p + '/' + u.e + '/' + u.role))) return;
+      const [ch, cc] = key.split(':');
+      const owners = [...new Set(list.map(u => 'P' + (u.p + 1) + ' E' + (u.e + 1) + ' ' + M.ROLE_LABEL[u.role]))];
+      out.push('Ch' + ch + ' CC ' + cc + ': ' + owners.join(', '));
+    });
+    return out;
   }
   function runCC() {
     const o = bulkState.cc;
-    const t = targets();
+    const t = ccTargets();
+    if (!t.length) return toast('Choose at least one target (Dest 1, Dest 2 or Push)', true);
     const res = commit(() => M.distributeCC(S.scene, S.settings, t, o));
     if (!res) return;
     toast(res.assigned + ' CCs assigned' + (res.last !== null ? ' (up to CC ' + res.last + ')' : '') +
       (res.kept ? ', ' + res.kept + ' kept (navigation or other function)' : '') +
-      (res.overflow ? ', ' + res.overflow + ' without a free CC (> 127)' : ''), res.overflow > 0);
+      (res.offSkipped ? ', ' + res.offSkipped + ' Off left out' : '') +
+      (res.overflow ? ', ' + res.overflow + ' without a free CC (> 127)' : '') +
+      (res.cleared ? ', ' + res.cleared + ' switched Off' : ''), res.overflow > 0);
   }
 
   /*
@@ -1366,9 +1572,31 @@
   }
 
   /* Pages a navigation template is written to: the Page range, otherwise the current Page. */
+  // ---------- Pages tab: page-level actions with their own Page scope ----------
+  function renderPagesTab() {
+    const pane = $('#side-pages');
+    const o = S.pscope;
+    const pageNums = {};
+    for (let i = 1; i <= S.scene.pages.length; i++) pageNums[i] = { label: String(i), sure: true };
+    const pages = navPages();
+    const scope = el('fieldset', null, el('legend', null, 'Scope'),
+      row('Applies to', selectEl({ 0: { label: 'Current Page', sure: true }, 1: { label: 'Page range', sure: true } },
+        o.mode === 'range' ? 1 : 0, v => { o.mode = v ? 'range' : 'page'; render(); })),
+      o.mode === 'range' ? row('From / to', el('span', { class: 'inl' },
+        selectEl(pageNums, o.from, v => { o.from = v; render(); }), selectEl(pageNums, o.to, v => { o.to = v; render(); }))) : null,
+      el('p', { class: 'muted' }, 'Current: ' + pagesText(pages)));
+    pane.replaceChildren(scope, bulkLibrary(pageNums), bulkNav(), bulkPage(pageNums));
+  }
+  /* "Page 3 (T3)" or "Pages 1–4 (MIX1 … BLUE)". */
+  function pagesText(pages) {
+    const title = p => S.scene.pages[p].title || 'P' + (p + 1);
+    return pages.length === 1 ? 'Page ' + (pages[0] + 1) + ' (' + title(pages[0]) + ')'
+      : 'Pages ' + (pages[0] + 1) + '–' + (pages[pages.length - 1] + 1) + ' (' + title(pages[0]) + ' … ' + title(pages[pages.length - 1]) + ')';
+  }
+  /* Pages the Pages tab works on: the Page range, otherwise the current Page. */
   function navPages() {
-    const b = S.bulk;
-    if (b.scope !== 'pages') return [S.page];
+    const b = S.pscope;
+    if (b.mode !== 'range') return [S.page];
     const from = Math.max(1, Math.min(b.from, b.to)), to = Math.min(S.scene.pages.length, Math.max(b.from, b.to));
     const out = [];
     for (let p = from - 1; p < to; p++) out.push(p);
@@ -1382,19 +1610,18 @@
     const opts = {};
     all.forEach((t, i) => { opts[i] = { label: t.name, sure: true }; });
     const pages = navPages();
-    const pagesText = pages.length === 1 ? 'Page ' + (pages[0] + 1) : 'Pages ' + (pages[0] + 1) + '–' + (pages[pages.length - 1] + 1);
     return el('fieldset', null, el('legend', null, 'Navigation'),
       row('Template', selectEl(opts, S.nav.sel, v => { S.nav.sel = v; render(); })),
       el('p', { class: 'muted' }, 'Push: ' + M.navTemplateText(tpl) + '. Targets are relative to each Page and wrap around the scene\'s 12 Pages (P1 ← = P12, P1 ↑ = P9).'),
-      el('p', { class: 'muted' }, 'Writes to ' + pagesText + ' (Scope: current Page or Page range). Other encoders and Dest 1/2 stay unchanged.'),
+      el('p', { class: 'muted' }, 'Writes to ' + pagesText(pages) + '. Other encoders and Dest 1/2 stay unchanged.'),
       el('div', { class: 'inl' },
         el('button', { class: 'btn primary', onclick: e => { e.preventDefault(); runNav(tpl, pages); } }, 'Apply'),
         el('button', { class: 'btn', title: 'Store the Navigation pushes of Page ' + (S.page + 1) + ' as a template',
           onclick: e => { e.preventDefault(); navFromCurrent(); } }, 'Save Page ' + (S.page + 1) + ' as template'),
         tpl.builtin ? null : el('button', { class: 'btn', onclick: e => { e.preventDefault(); navDelete(); } }, 'Delete')),
       el('p', { class: 'muted' }, S.nav.inFolder
-        ? 'Own templates are stored in ' + NAV_FILE + ' in the scene folder.'
-        : 'Own templates are stored in this browser. With a scene folder open, they are also kept in ' + NAV_FILE + ' there.'));
+        ? 'Own templates are stored in ' + NAV_PATH + ' in the scene folder.'
+        : 'Own templates are stored in this browser. With a scene folder open, they are also kept in ' + NAV_PATH + ' there.'));
   }
   function runNav(tpl, pages) {
     let res;
@@ -1434,7 +1661,8 @@
     const o = bulkState.page;
     return el('fieldset', null, el('legend', null, 'Copy / swap Page'),
       row('Target page', selectEl(pageNums, o.target, v => { o.target = v; })),
-      row('Include name/channel/output', el('input', { type: 'checkbox', checked: o.withSettings, onchange: e => { o.withSettings = e.target.checked; render(); } })),
+      row('With settings', el('input', { type: 'checkbox', checked: o.withSettings, onchange: e => { o.withSettings = e.target.checked; render(); } }),
+        'Also copy or swap the Page name, channel and output'),
       row('Nav on swap', navModeEl(), NAV_MODE_HINT),
       el('div', { class: 'inl' },
         el('button', { class: 'btn', onclick: e => { e.preventDefault(); runPage(false); } }, 'Copy Page ' + (S.page + 1) + ' to target'),
@@ -1446,6 +1674,86 @@
     if (ti === S.page) return toast('Target is the current Page', true);
     if (swap) swapPages(S.page, ti, o.withSettings);
     else copyPage(S.page, ti, o.withSettings);
+  }
+
+  /* Pages saved to the library: the Page range, otherwise the current Page. */
+  function libSourcePages() { return navPages(); }
+  function bulkLibrary(pageNums) {
+    const o = S.plib;
+    if (o.sel >= o.entries.length) o.sel = 0;
+    const src = libSourcePages();
+    const srcText = pagesText(src);
+    const opts = {};
+    o.entries.forEach((x, i) => {
+      // The number of Pages is shown only for entries with more than one Page.
+      const n = x.entry.pages.length;
+      opts[i] = { label: x.entry.name + (n > 1 ? ' · ' + n + ' Pages' : ''), sure: true };
+    });
+    const nodes = [el('legend', null, 'Page library'),
+      el('p', { class: 'muted' }, 'Copies Pages between scenes: save them here, open another scene, insert them.'),
+      el('button', { class: 'btn', onclick: e => { e.preventDefault(); libSave(src); } }, 'Save ' + srcText + ' to library')];
+    if (o.entries.length) {
+      nodes.push(
+        row('Entry', selectEl(opts, o.sel, v => { o.sel = v; render(); })),
+        row('Insert at Page', selectEl(pageNums, o.at, v => { o.at = v; render(); })),
+        el('div', { class: 'inl' },
+          el('button', { class: 'btn primary', onclick: e => { e.preventDefault(); libInsert(); } }, 'Insert'),
+          el('button', { class: 'btn', onclick: e => { e.preventDefault(); libDelete(); } }, 'Delete')));
+    } else nodes.push(el('p', { class: 'muted' }, 'The library is empty.'));
+    nodes.push(el('p', { class: 'muted' }, o.inFolder
+      ? 'Entries are files in ' + PAGES_PATH + ' in the scene folder.'
+      : 'Entries are stored in this browser. With a scene folder open, they are moved to ' + PAGES_PATH + ' there.'));
+    return el('fieldset', null, ...nodes);
+  }
+  async function libSave(pages) {
+    const titles = pages.map(p => S.scene.pages[p].title).filter(Boolean);
+    const name = (prompt('Name for ' + pages.length + (pages.length === 1 ? ' Page' : ' Pages') + ':',
+      (S.scene.title ? S.scene.title + ' ' : '') + (titles[0] || 'P' + (pages[0] + 1))) || '').trim();
+    if (!name) return;
+    const entry = M.pagesToEntry(S.scene, pages[0], pages.length, name);
+    const file = pageFileName(name);
+    const i = S.plib.entries.findIndex(x => x.file.toLowerCase() === file.toLowerCase());
+    if (i >= 0 && !confirm('"' + S.plib.entries[i].entry.name + '" already exists. Replace it?')) return;
+    if (S.plib.inFolder) {
+      try { await L().writeFileAt(S.lib.dir, PAGES_DIR, file, JSON.stringify(entry, null, 2)); }
+      catch (e) { return toast('Could not write ' + PAGES_PATH + '/' + file + ': ' + e.message, true); }
+    }
+    if (i >= 0) S.plib.entries[i] = { file, entry }; else S.plib.entries.push({ file, entry });
+    S.plib.entries.sort((a, b) => a.file.localeCompare(b.file, undefined, { sensitivity: 'base' }));
+    if (!S.plib.inFolder && !savePagesLocal()) return;
+    S.plib.sel = S.plib.entries.findIndex(x => x.file === file);
+    render();
+    toast('"' + name + '" saved (' + pages.length + (pages.length === 1 ? ' Page)' : ' Pages)'));
+  }
+  function libInsert() {
+    const x = S.plib.entries[S.plib.sel];
+    if (!x) return;
+    const at = S.plib.at - 1, n = x.entry.pages.length;
+    if (at + n > S.scene.pages.length) {
+      return toast('"' + x.entry.name + '" has ' + n + ' Pages and does not fit from Page ' + (at + 1) + '. Last possible start: Page ' + (S.scene.pages.length - n + 1) + '.', true);
+    }
+    const range = n === 1 ? 'Page ' + (at + 1) : 'Pages ' + (at + 1) + '–' + (at + n);
+    if (!confirm('Overwrite ' + range + ' with "' + x.entry.name + '"?')) return;
+    let res;
+    commit(() => { res = M.insertPages(S.scene, x.entry, at); });
+    S.page = at;
+    S.sel = new Set();
+    render();
+    toast('"' + x.entry.name + '" inserted at ' + range
+      + (res.navMoved ? ', ' + res.navMoved + ' Navigation targets moved by ' + (at - x.entry.start > 0 ? '+' : '') + (at - x.entry.start) : '')
+      + (res.scripts ? '. ' + res.scripts + ' Script actions use this scene\'s script' : ''), res.scripts > 0);
+  }
+  async function libDelete() {
+    const x = S.plib.entries[S.plib.sel];
+    if (!x || !confirm('Delete "' + x.entry.name + '" from the library?' + (S.plib.inFolder ? ' The file ' + PAGES_PATH + '/' + x.file + ' is removed.' : ''))) return;
+    if (S.plib.inFolder) {
+      try { await L().removeFileAt(S.lib.dir, PAGES_DIR, x.file); }
+      catch (e) { return toast('Could not delete ' + x.file + ': ' + e.message, true); }
+    }
+    S.plib.entries.splice(S.plib.sel, 1);
+    S.plib.sel = 0;
+    if (!S.plib.inFolder) savePagesLocal();
+    render();
   }
 
   /*
@@ -1673,21 +1981,72 @@
     $('#dlg .dlgfoot').hidden = !!ownButtons; // dialogs with their own buttons hide "Close"
     $('#dlg').showModal();
   }
-  function infoDialog() {
-    const li = (t, d) => el('li', null, el('b', null, t + ': '), d);
-    showDialog([
-      el('h2', null, 'Format info'),
-      el('p', null, 'The .oxie16 format is not officially documented. The mapping is based on comparison with the OXI App and the community project github.com/brentvatne/oxi-e16-config. Unknown fields and values are saved unchanged.'),
-      el('ul', null,
-        li('Structure', 'Scene → 12 Pages → 16 encoders → Dest 1, Dest 2 (turn_actions) and Push (push_action)'),
-        li('Verified', 'Types, Output, channel (Page channel = MIDI channel 1–16, destination channel 0 = Page), Accel Mode, Display, color 0–99'),
-        li('Unverified (?)', 'Push behavior 1 (Press + Release), Page navigation options lower/upper, instrument/parameter'),
-        li('Color', 'Palette 0–99 from the app\'s color picker'),
-      ),
-      el('h3', null, 'Old version after an update?'),
-      el('p', null, 'The browser caches the editor\'s files. knobOx checks for a newer version when it starts and offers a reload. '
-        + 'If something still looks outdated, reload without cache: Ctrl+Shift+R (Mac: Cmd+Shift+R).'),
-    ]);
+
+  // ---------- help overlay: index on the left, text on the right ----------
+  let helpEl = null, helpSpy = null;
+  function buildHelp() {
+    const H = window.E16Help;
+    const nav = el('nav', { class: 'helpnav', 'aria-label': 'Help contents' });
+    const body = el('div', { class: 'helpbody', tabindex: '-1' });
+    H.sections.forEach(sec => {
+      nav.append(el('a', { href: '#help-' + sec.id, 'data-id': sec.id, onclick: e => { e.preventDefault(); helpGo(sec.id); } }, sec.title));
+      const art = el('section', { id: 'help-' + sec.id, class: 'helpsec' }, el('h2', null, sec.title));
+      const inner = el('div');
+      inner.innerHTML = sec.html;  // static text from help.js
+      art.append(...inner.childNodes);
+      body.append(art);
+    });
+    // Links between sections ("#help-pages") stay inside the overlay.
+    body.addEventListener('click', e => {
+      const a = e.target.closest('a[href^="#help-"]');
+      if (a) { e.preventDefault(); helpGo(a.getAttribute('href').slice(6)); }
+    });
+    const close = el('button', { class: 'btn icon', type: 'button', title: 'Close (Esc)', 'aria-label': 'Close help', onclick: closeHelp });
+    close.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>';
+    const box = el('div', { class: 'helpbox', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'knobOx help' },
+      el('header', { class: 'helphead' }, el('img', { src: 'assets/icon.svg', alt: '', class: 'logo' }),
+        el('b', null, 'knobOx help'), el('span', { class: 'muted' }, $('#appVersion') ? $('#appVersion').textContent : ''),
+        el('span', { class: 'grow' }), close),
+      el('div', { class: 'helpcols' }, nav, body));
+    helpEl = el('div', { class: 'helpov', hidden: true, onclick: e => { if (e.target === helpEl) closeHelp(); } }, box);
+    document.body.append(helpEl);
+    // Highlight the section that is currently at the top of the text.
+    helpSpy = () => {
+      const top = body.getBoundingClientRect().top + 24;
+      let cur = H.sections[0].id;
+      body.querySelectorAll('.helpsec').forEach(s => { if (s.getBoundingClientRect().top <= top) cur = s.id.slice(5); });
+      markHelpNav(cur);
+    };
+    body.addEventListener('scroll', helpSpy, { passive: true });
+  }
+  function helpGo(id) {
+    const sec = helpEl.querySelector('#help-' + id);
+    if (!sec) return;
+    const body = helpEl.querySelector('.helpbody');
+    body.scrollTo({ top: sec.offsetTop - body.offsetTop - 8, behavior: 'smooth' });
+    markHelpNav(id);
+  }
+  /* Highlights the index entry of section id and keeps it visible (the index scrolls sideways on phones). */
+  function markHelpNav(id) {
+    helpEl.querySelectorAll('.helpnav a').forEach(a => {
+      const on = a.dataset.id === id;
+      if (on && !a.classList.contains('active')) a.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      a.classList.toggle('active', on);
+    });
+  }
+  /* Opens the help overlay, optionally at a section id from help.js. */
+  function openHelp(id) {
+    if (!helpEl) buildHelp();
+    helpEl.hidden = false;
+    document.body.classList.add('noscroll');
+    const body = helpEl.querySelector('.helpbody');
+    if (id) helpGo(id); else helpSpy();
+    body.focus({ preventScroll: true });
+  }
+  function closeHelp() {
+    if (!helpEl || helpEl.hidden) return;
+    helpEl.hidden = true;
+    document.body.classList.remove('noscroll');
   }
 
   // ---------- update check ----------
@@ -1697,7 +2056,7 @@
    * Compare the cached copy of every app file with the server's copy and offer a reload when they differ.
    * The revalidating request also refreshes the cache, so a normal reload then gets the new files.
    */
-  const APP_FILES = ['src/app.js', 'src/model.js', 'src/sysex.js', 'src/library.js', 'src/style.css'];
+  const APP_FILES = ['src/app.js', 'src/model.js', 'src/sysex.js', 'src/library.js', 'src/help.js', 'src/style.css'];
   const UPDATE_RECHECK_MS = 5 * 60 * 1000;
   let lastUpdateCheck = 0;
   async function checkForUpdate() {
@@ -1736,7 +2095,9 @@
     $('#btnUndo').addEventListener('click', undo);
     $('#btnRedo').addEventListener('click', redo);
     initTheme();
-    $('#btnInfo').addEventListener('click', infoDialog);
+    // Guarded: a cached index.html from before the help existed has no Help button.
+    if ($('#btnHelp')) $('#btnHelp').addEventListener('click', () => openHelp());
+    document.addEventListener('keydown', e => { if (e.key === 'Escape' && helpEl && !helpEl.hidden) { e.preventDefault(); closeHelp(); } });
     $('#selAll').addEventListener('click', () => { S.sel = new Set([...Array(16).keys()]); render(); });
     $('#selNone').addEventListener('click', () => { S.sel = new Set(); render(); });
     $('#btnCopy').addEventListener('click', copySel);
@@ -1781,6 +2142,7 @@
       }
     } catch (e) { /* storage unavailable */ }
     loadNavLocal();
+    loadPagesLocal();
     render();
     initFolder();
     checkForUpdate();

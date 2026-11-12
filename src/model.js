@@ -283,16 +283,23 @@
 
   /*
    * Distribute CC numbers.
-   * targets: [{p, e}] in assignment order.
-   * o: { role, start, step, skipUsed, setTypeIfOff, keepOther, channel ('keep' | 0..16) }
+   * targets: [{p, e, role?}] in assignment order; a target without role uses o.role.
+   * Counting runs per Page channel: every Page channel starts at o.start, Pages on the same channel continue
+   * each other. An action with its own channel counts with the channel of its Page.
+   * o: { role, start, step, skipUsed, setTypeIfOff, keepOther, remap, channel ('keep' | 0..16) }
+   * remap: renumber the CC actions in use. Targets of type Off are left alone and use no CC number; a CC action
+   * left without a CC is switched Off, so no old number stays behind as a duplicate.
+   * A Push switched from Off to CC with P.Val and R.Val both 0 gets P.Val 127, so a press sends a value.
    * keepOther: leave actions alone that are neither Off nor a CC type (e.g. Page navigation,
    * Script, Note, PC); they don't consume a CC number.
-   * Returns { assigned, last, overflow, kept }.
+   * Returns { assigned, last, overflow, kept, offSkipped, cleared, pages, firstOverflow }: cleared counts actions
+   * switched Off by remap, pages maps a page index to the
+   * [lowest, highest] CC given there, chans maps a page index to its Page channel, firstOverflow is the first target ({p, e, role}) left without a CC.
    */
   function distributeCC(scene, settings, targets, o) {
-    const role = o.role;
     const step = Math.max(1, o.step | 0);
-    const targetKey = new Set(targets.map(t => t.p + '/' + t.e + '/' + role));
+    const roleOf = t => t.role || o.role;
+    const targetKey = new Set(targets.map(t => t.p + '/' + t.e + '/' + roleOf(t)));
     let used = null;
     if (o.skipUsed) {
       used = new Set();
@@ -300,26 +307,45 @@
         if (list.some(u => !targetKey.has(u.p + '/' + u.e + '/' + u.role))) used.add(k);
       });
     }
-    let cc = o.start | 0;
-    let assigned = 0, last = null, overflow = 0, kept = 0;
+    const next = new Map();  // Page channel -> next CC
+    let assigned = 0, last = null, overflow = 0, kept = 0, offSkipped = 0, cleared = 0, firstOverflow = null;
+    const pages = {}, chans = {};
     for (const t of targets) {
+      const role = roleOf(t);
       const page = scene.pages[t.p];
+      const pch = pageChannel(page, settings);
+      chans[t.p] = pch;
+      let cc = next.has(pch) ? next.get(pch) : o.start | 0;
       const a = getAction(page.encoders[t.e], role);
       if (!a) continue;
+      if (o.remap && a.type === 0) { offSkipped++; continue; }
       if (o.keepOther && a.type !== 0 && !isCC(role, a)) { kept++; continue; }
-      if (o.setTypeIfOff && a.type === 0) a.type = role === 'push' ? 2 : 3;
-      if (o.channel !== 'keep' && o.channel !== undefined) a.channel = Number(o.channel);
-      const ch = effectiveChannel(page, a, settings);
+      // A target without a free CC stays exactly as it was (no type or channel change).
+      const newChannel = o.channel !== 'keep' && o.channel !== undefined ? Number(o.channel) : a.channel;
+      const ch = effectiveChannel(page, Object.assign({}, a, { channel: newChannel }), settings);
       if (used) while (cc <= 127 && used.has(ch + ':' + cc)) cc++;
-      if (cc > 127) { overflow++; continue; }
+      if (cc > 127) {
+        next.set(pch, cc);
+        overflow++;
+        if (!firstOverflow) firstOverflow = { p: t.p, e: t.e, role };
+        if (o.remap && isCC(role, a)) { a.type = 0; cleared++; }
+        continue;
+      }
+      if (!o.remap && o.setTypeIfOff && a.type === 0) {
+        a.type = role === 'push' ? 2 : 3;
+        if (role === 'push' && !a.lower && !a.upper) a.lower = 127;
+      }
+      a.channel = newChannel;
       a.nr1 = cc;
+      const r = pages[t.p] || (pages[t.p] = [cc, cc]);
+      r[0] = Math.min(r[0], cc); r[1] = Math.max(r[1], cc);
       if (role !== 'push' && a.type === 4 && cc < 96) a.nr2 = cc + 32;
       if (used) used.add(ch + ':' + cc);
       assigned++;
       last = cc;
-      cc += step;
+      next.set(pch, cc + step);
     }
-    return { assigned, last, overflow, kept };
+    return { assigned, last, overflow, kept, offSkipped, cleared, pages, chans, firstOverflow };
   }
 
   /* E16 color index 0..99 -> CSS color from the app palette. */
@@ -416,6 +442,50 @@
       .map(t => ({ name: t.name, items: t.items.map(i => ({ enc: i.enc, step: i.step, set: Object.assign({}, i.set) })) }));
   }
 
+  /*
+   * Page library entry: one or more consecutive pages with their settings, taken from a scene.
+   * { format, version, device, name, scene, start, pages }: scene is the source scene's title, start the
+   * 0-based index of the first page in the source scene; Navigation push targets are moved by (insert position - start) when inserted.
+   */
+  const PAGE_ENTRY_FORMAT = 'knobox-pages';
+  function pagesToEntry(scene, from, count, name) {
+    return { format: PAGE_ENTRY_FORMAT, version: 1, device: 'E16', name: name, scene: scene.title || '', start: from,
+      pages: scene.pages.slice(from, from + count).map(p => deepClone(p)) };
+  }
+  /* Checks a parsed entry; returns an error text or null. */
+  function checkPageEntry(x) {
+    if (!x || x.format !== PAGE_ENTRY_FORMAT) return 'Not a knobOx page file.';
+    if (typeof x.name !== 'string' || !Array.isArray(x.pages) || !x.pages.length) return 'No pages in the file.';
+    if (!Number.isInteger(x.start) || x.start < 0) return 'Invalid start page.';
+    for (const p of x.pages) {
+      if (!Array.isArray(p.encoders) || p.encoders.length !== 16) return 'A page does not have 16 encoders.';
+      for (const e of p.encoders) if (!e.push_action || !Array.isArray(e.turn_actions)) return 'Encoder without push_action/turn_actions.';
+    }
+    return null;
+  }
+  /*
+   * Writes the entry's pages over the pages from index `at`. Navigation push targets move by the same
+   * distance as the pages (wrapping around all pages). Returns { pages, navMoved, scripts } or null if
+   * the entry does not fit. scripts counts Script actions, which refer to the scene's own script.
+   */
+  function insertPages(scene, entry, at) {
+    const n = scene.pages.length;
+    if (at < 0 || at + entry.pages.length > n) return null;
+    const shift = at - entry.start;
+    let navMoved = 0, scripts = 0;
+    entry.pages.forEach((src, i) => {
+      const p = deepClone(src);
+      p.encoders.forEach(enc => {
+        const pa = enc.push_action;
+        if (pa.type === 6 && shift) { pa.nr2 = mod(pa.nr2 + shift, n); navMoved++; }
+        if (pa.type === 12) scripts++;
+        (enc.turn_actions || []).forEach(a => { if (a && a.type === 11) scripts++; });
+      });
+      scene.pages[at + i] = p;
+    });
+    return { pages: entry.pages.length, navMoved, scripts };
+  }
+
   function validateScene(s) {
     if (!s || typeof s !== 'object') return 'Not a JSON object.';
     if (!Array.isArray(s.pages)) return 'Field "pages" is missing.';
@@ -436,6 +506,7 @@
     actionFields, actionSummary, collectCCUses, distinctOwners, rangesText,
     orderIndices, distributeCC, colorCss, deepClone, iconGet, iconSet, validateScene,
     NAV_DEFAULT, NAV_COLS, navStep, navTarget, navStepLabel, navTemplateText, navFromPage, applyNav, cleanNavTemplates,
+    pagesToEntry, checkPageEntry, insertPages,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.E16 = api;
