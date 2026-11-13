@@ -30,6 +30,7 @@
     midi: null,           // { access, input, output }
     nav: { list: [], sel: 0, inFolder: false },  // user navigation templates; sel indexes [built-in, ...list]
     plib: { entries: [], sel: 0, at: 1, inFolder: false },  // page library: [{ file, entry }]
+    nameSame: (() => { try { return localStorage.getItem('e16ed.nameSame') !== '0'; } catch (e) { return true; } })(),  // Name follows Abbr
   };
   const UNDO_MAX = 200;
   const LS_SESSION = 'e16ed.session';
@@ -157,6 +158,26 @@
     const tag = control && control.querySelector && control.querySelector('label') ? 'div' : 'label';
     return el(tag, { class: 'frow', title: hint || null }, el('span', { class: 'flabel' }, label), control);
   }
+  /* Row whose controls sit side by side at their natural width. */
+  function rowFit(label, controls, hint) {
+    return el('div', { class: 'frow', title: hint || null }, el('span', { class: 'flabel' }, label),
+      el('span', { class: 'inl' }, ...controls.filter(Boolean)));
+  }
+  function checkEl(text, checked, onchange, hint) {
+    return el('label', { class: 'chk', title: hint || null },
+      el('input', { type: 'checkbox', checked, onchange: e => onchange(e.target.checked) }), text);
+  }
+  /* Checkboxes stacked under one label. */
+  function rowChecks(label, checks) {
+    return el('div', { class: 'frow' }, el('span', { class: 'flabel' }, label), el('div', { class: 'chklist' }, ...checks.filter(Boolean)));
+  }
+  /* Action buttons at the end of a section. */
+  function btnRow(...buttons) { return el('div', { class: 'btnrow' }, ...buttons.filter(Boolean)); }
+  function actBtn(text, run, attrs) {
+    return el('button', Object.assign({ class: 'btn', type: 'button', onclick: e => { e.preventDefault(); run(); } }, attrs || {}), text);
+  }
+  /* Help text under a single field, indented to the controls. */
+  function fieldHint(text, warn) { return el('p', { class: 'muted fhint' + (warn ? ' warn' : '') }, text); }
 
   // ---------- undo / commit ----------
   function commit(fn, msg) {
@@ -1129,8 +1150,19 @@
       sel.length > 1 ? el('span', { class: 'muted' }, sel.length + ' selected, edits only affect encoder ' + (i + 1)) : null);
 
     const general = el('fieldset', null, el('legend', null, 'General'),
-      row('Name', textEl(enc.name, v => commit(() => { enc.name = v.slice(0, 4); }), { maxlength: 4, class: 'w-name' })),
-      row('Abbr', textEl(enc.abbr, v => commit(() => { enc.abbr = v.slice(0, 4); }), { maxlength: 4, class: 'w-name' })),
+      row('Abbr', textEl(enc.abbr, v => commit(() => {
+        enc.abbr = v.slice(0, 4);
+        if (S.nameSame) enc.name = enc.abbr;
+      }), { maxlength: 4, class: 'w-num', title: 'Label shown on the E16' })),
+      rowFit('Name', [
+        textEl(enc.name, v => commit(() => { enc.name = v.slice(0, 4); }),
+          { maxlength: 4, class: 'w-num', disabled: S.nameSame, title: S.nameSame ? 'Follows Abbr. Untick "Same as Abbr" to edit it.' : 'Parameter name' }),
+        checkEl('Same as Abbr', S.nameSame, v => {
+          S.nameSame = v;
+          try { localStorage.setItem('e16ed.nameSame', v ? '1' : '0'); } catch (e) { /* storage unavailable */ }
+          if (v && enc.name !== enc.abbr) commit(() => { enc.name = enc.abbr; });
+          else render();
+        }, 'On: typing an Abbr also sets the Name')]),
       row('Color', colorEl(enc.color, v => commit(() => { enc.color = v; }))),
       extraKeys(enc, ['name', 'abbr', 'color', 'color2', 'push_action', 'turn_actions']),
     );
@@ -1226,10 +1258,11 @@
     for (let i = 1; i <= nPages; i++) pageNums[i] = { label: String(i), sure: true };
 
     const scope = el('fieldset', null, el('legend', null, 'Scope'),
-      row('Applies to', selectEl({ 0: { label: 'Selection', sure: true }, 1: { label: 'Current Page', sure: true }, 2: { label: 'Page range', sure: true } },
-        { sel: 0, page: 1, pages: 2 }[b.scope], v => { b.scope = ['sel', 'page', 'pages'][v]; render(); })),
-      b.scope === 'pages' ? row('From / to', el('span', { class: 'inl' },
-        selectEl(pageNums, b.from, v => { b.from = v; render(); }), selectEl(pageNums, b.to, v => { b.to = v; render(); }))) : null,
+      rowFit('Applies to', [selectEl({ 0: { label: 'Selection', sure: true }, 1: { label: 'Current Page', sure: true }, 2: { label: 'Page range', sure: true } },
+        { sel: 0, page: 1, pages: 2 }[b.scope], v => { b.scope = ['sel', 'page', 'pages'][v]; render(); }),
+        b.scope === 'pages' ? selectEl(pageNums, b.from, v => { b.from = v; render(); }, { 'aria-label': 'From Page', class: 'w-page' }) : null,
+        b.scope === 'pages' ? el('span', { class: 'hint' }, 'to') : null,
+        b.scope === 'pages' ? selectEl(pageNums, b.to, v => { b.to = v; render(); }, { 'aria-label': 'To Page', class: 'w-page' }) : null]),
       b.scope === 'pages' ? row('Encoders', selectEl({ 0: { label: 'All 16', sure: true }, 1: { label: 'Chosen positions', sure: true } },
         b.selPos ? 1 : 0, v => {
           b.selPos = !!v;
@@ -1270,19 +1303,19 @@
     const seqKeys = ['page', 'role', 'enc'];
     return el('fieldset', null, el('legend', null, 'Distribute CCs'),
       row('Targets', el('span', { class: 'inl' }, ...M.ROLES.map(roleBox))),
-      nRoles > 1 ? row('Sequence', selectEl(seqOpts, seqKeys.indexOf(o.seq), v => { o.seq = seqKeys[v]; render(); })) : null,
-      row('Start / step', el('span', { class: 'inl', title: 'Counted per Page channel: every Page channel starts at the start CC, Pages on the same channel continue each other.' },
-        numEl(o.start, v => { o.start = v; render(); }, { min: 0, max: 127, class: 'w-num', title: 'First CC number' }),
-        numEl(o.step, v => { o.step = v; render(); }, { min: 1, max: 127, class: 'w-num', title: 'Distance between two CCs' }))),
-      o.start === 0 ? el('p', { class: 'muted' }, 'CC 0 is Bank Select (MSB) in the MIDI standard. Devices that react to it may switch banks.') : null,
+      nRoles > 1 ? row('Sequence', selectEl(seqOpts, seqKeys.indexOf(o.seq), v => { o.seq = seqKeys[v]; render(); }, { class: 'w-full' })) : null,
+      row('Start CC', numEl(o.start, v => { o.start = v; render(); }, { min: 0, max: 127, class: 'w-num' }),
+        'First CC number. Counted per Page channel: every Page channel starts at the start CC, Pages on the same channel continue each other.'),
+      row('Step', numEl(o.step, v => { o.step = v; render(); }, { min: 1, max: 127, class: 'w-num' }), 'Distance between two CCs'),
+      o.start === 0 ? fieldHint('CC 0 is Bank Select (MSB) in the MIDI standard. Devices that react to it may switch banks.') : null,
       row('Set channel', selectEl(chOpts, o.channel === 'keep' ? -1 : o.channel, v => { o.channel = v === -1 ? 'keep' : v; render(); })),
-      row('Options', el('span', { class: 'inl' },
+      rowChecks('Options', [
         optBox('remap', 'Remap used', 'Renumbers every CC action in use in the scope (Dest 1, Dest 2 and Push) from the start CC in the chosen sequence. Their old numbers are dropped, Off and Navigation stay as they are. CC actions left without a CC are switched Off.'),
         optBox('skipUsed', 'Skip used', 'Skips CCs that are already used outside the scope on the effective channel'),
         optBox('setTypeIfOff', 'Activate Off', o.remap ? 'Not used with "Remap used"' : 'Changes type Off to CC Abs (Dest) or CC (Push)', o.remap),
-        optBox('keepOther', 'Keep navigation', 'Skips actions that are neither Off nor CC, e.g. Navigation, Script, Note or PC. They keep their function and use no CC number.'))),
+        optBox('keepOther', 'Keep navigation', 'Skips actions that are neither Off nor CC, e.g. Navigation, Script, Note or PC. They keep their function and use no CC number.')]),
       ccPreview(),
-      el('button', { class: 'btn primary', onclick: e => { e.preventDefault(); runCC(); } }, 'Distribute'));
+      btnRow(actBtn('Distribute', runCC, { class: 'btn primary' })));
   }
   /*
    * Result of the current settings, worked out on a copy of the scene: a summary line and one cell per
@@ -1407,29 +1440,27 @@
           + (res >= 0 && res <= 127 ? res : res + ' (out of range, skipped)') + '. Encoders without a Dest 1 CC or outside 0–127 are skipped.';
       })()
       : 'Push CCs ' + v + ', ' + (v + 1) + ', ' + (v + 2) + ' … in the order chosen under Scope.';
-    const hint = el('p', { class: 'muted' }, hintText(o.source === 'offset' ? o.offset : o.start));
+    const hint = fieldHint(hintText(o.source === 'offset' ? o.offset : o.start));
     const live = () => e => { const v = parseInt(e.target.value, 10); if (!Number.isNaN(v)) hint.textContent = hintText(v); };
     return el('fieldset', null, el('legend', null, 'Set up Push as CC'),
       row('CC number', selectEl({ 0: { label: 'Dest 1 CC + offset', sure: true }, 1: { label: 'Sequential from', sure: true } },
         o.source === 'offset' ? 0 : 1, v => { o.source = v ? 'seq' : 'offset'; render(); })),
       o.source === 'offset'
         ? row('Offset', numEl(o.offset, v => { o.offset = v; }, { min: -127, max: 127, class: 'w-num', oninput: live() }))
-        : row('Start CC', el('span', { class: 'inl' },
+        : rowFit('Start CC', [
           numEl(o.start, v => { o.start = v; o.startAuto = false; render(); }, { min: 0, max: 127, class: 'w-num', oninput: live() }),
-          o.startAuto ? el('span', { class: 'muted' }, 'first free')
-            : el('button', { class: 'btn small', type: 'button', title: 'Use the lowest CC that is free on the channels in scope', onclick: e => { e.preventDefault(); o.startAuto = true; render(); } }, 'First free'))),
-      o.source === 'seq' ? row('Skip used CCs', el('input', { type: 'checkbox', checked: o.skipUsed, onchange: e => { o.skipUsed = e.target.checked; } }),
-        'Skips CCs that are already used outside the scope on the channel the Push sends on') : null,
+          o.startAuto ? el('span', { class: 'hint' }, 'first free')
+            : actBtn('First free', () => { o.startAuto = true; render(); }, { title: 'Use the lowest CC that is free on the channels in scope' })]),
       hint,
       row('Behavior', selectEl(M.PUSH_MODES, o.mode, v => { o.mode = v; })),
-      row('P.Val', numEl(o.pval, v => { o.pval = v; }, { min: 0, max: 127, class: 'w-num' })),
-      row('R.Val', numEl(o.rval, v => { o.rval = v; }, { min: 0, max: 127, class: 'w-num' })),
-      row('Channel from Dest 1', el('input', { type: 'checkbox', checked: o.copyChannel, onchange: e => { o.copyChannel = e.target.checked; render(); } })),
-      row('Activate Off targets', el('input', { type: 'checkbox', checked: o.setTypeIfOff, onchange: e => { o.setTypeIfOff = e.target.checked; } }),
-        'Changes Push type Off to CC. Unchecked, Off pushes get their CC number and values but stay Off.'),
-      row('Keep navigation & other functions', el('input', { type: 'checkbox', checked: o.keepOther, onchange: e => { o.keepOther = e.target.checked; } }),
-        'Only Push actions that are Off or already CC are changed; Navigation, Set to Default, Script etc. stay as they are.'),
-      el('button', { class: 'btn primary', onclick: e => { e.preventDefault(); runPush(); } }, 'Apply'));
+      row('P.Val', numEl(o.pval, v => { o.pval = v; }, { min: 0, max: 127, class: 'w-num' }), 'Value sent on press'),
+      row('R.Val', numEl(o.rval, v => { o.rval = v; }, { min: 0, max: 127, class: 'w-num' }), 'Value sent on release'),
+      rowChecks('Options', [
+        o.source === 'seq' ? checkEl('Skip used CCs', o.skipUsed, v => { o.skipUsed = v; }, 'Skips CCs that are already used outside the scope on the channel the Push sends on') : null,
+        checkEl('Channel from Dest 1', o.copyChannel, v => { o.copyChannel = v; render(); }),
+        checkEl('Activate Off targets', o.setTypeIfOff, v => { o.setTypeIfOff = v; }, 'Changes Push type Off to CC. Unchecked, Off pushes get their CC number and values but stay Off.'),
+        checkEl('Keep navigation and other functions', o.keepOther, v => { o.keepOther = v; }, 'Only Push actions that are Off or already CC are changed; Navigation, Set to Default, Script etc. stay as they are.')]),
+      btnRow(actBtn('Apply', runPush, { class: 'btn primary' })));
   }
   function runPush() {
     const o = bulkState.push;
@@ -1486,7 +1517,7 @@
       row('Section', selectEl(rOpts, rKeys.indexOf(o.role), v => { o.role = rKeys[v]; render(); })),
       row('Field', selectEl(kOpts, keys.indexOf(o.key), v => { o.key = keys[v]; render(); })),
       row('Value', valCtl),
-      el('button', { class: 'btn primary', onclick: e => { e.preventDefault(); runField(); } }, 'Set'));
+      btnRow(actBtn('Set', runField, { class: 'btn primary' })));
   }
   /* Field definitions (label, kind, options) per key for a bulk section, taken from the encoder editor's fields. */
   function fieldDefs(role) {
@@ -1515,15 +1546,13 @@
     const o = bulkState.name;
     return el('fieldset', null, el('legend', null, 'Assign names'),
       row('Pattern', textEl(o.pattern, v => { o.pattern = v; }), 'Placeholders: {n} running number, {cc} CC of Dest 1, {e} encoder number, {p} page number. Max. 4 characters.'),
-      row('Start {n}', numEl(o.start, v => { o.start = v; }, { class: 'w-num' })),
+      fieldHint('Placeholders: {n} running number, {cc} CC of Dest 1, {e} encoder, {p} Page. Max. 4 characters.'),
+      rowFit('Start {n}', [numEl(o.start, v => { o.start = v; }, { class: 'w-num' }),
+        S.bulk.scope === 'pages' ? checkEl('Restart on every Page', o.perPage, v => { o.perPage = v; }, 'Restart {n} at the start value on every Page') : null]),
       row('Target', selectEl({ 0: { label: 'Name + Abbr', sure: true }, 1: { label: 'Name only', sure: true }, 2: { label: 'Abbr only', sure: true } },
         ['both', 'name', 'abbr'].indexOf(o.target), v => { o.target = ['both', 'name', 'abbr'][v]; })),
-      S.bulk.scope === 'pages' ? row('{n} per Page', el('input', { type: 'checkbox', checked: o.perPage, onchange: e => { o.perPage = e.target.checked; } }),
-        'Restart {n} at the start value on every Page') : null,
-      el('p', { class: 'muted' }, 'Placeholders: {n} {cc} {e} {p}'),
-      el('span', { class: 'inl' },
-        el('button', { class: 'btn primary', onclick: e => { e.preventDefault(); runName(); } }, 'Rename'),
-        el('button', { class: 'btn', title: 'Reset the names of the encoders in scope to E1 … E16 by position (Target applies)', onclick: e => { e.preventDefault(); clearNames(targets(), o.target); } }, 'Reset names')));
+      btnRow(actBtn('Rename', runName, { class: 'btn primary' }),
+        actBtn('Reset names', () => clearNames(targets(), o.target), { title: 'Reset the names of the encoders in scope to E1 … E16 by position (Target applies)' })));
   }
   function runName() {
     const o = bulkState.name;
@@ -1551,11 +1580,10 @@
         v => { o.mode = v ? 'grad' : 'fixed'; render(); })),
       row(o.mode === 'fixed' ? 'Color' : 'From', colorEl(o.a, v => { o.a = v; render(); })),
       o.mode === 'grad' ? row('To', colorEl(o.b, v => { o.b = v; render(); })) : null,
-      o.mode === 'grad' && S.bulk.scope === 'pages' ? row('Gradient per Page', el('input', { type: 'checkbox', checked: o.perPage, onchange: e => { o.perPage = e.target.checked; } }),
-        'On: the gradient runs on every Page from start to end. Off: one gradient across all Pages of the range.') : null,
-      el('span', { class: 'inl' },
-        el('button', { class: 'btn primary', onclick: e => { e.preventDefault(); runColor(); } }, 'Apply color'),
-        el('button', { class: 'btn', title: 'Set the encoders in scope to white (color ' + M.WHITE + ')', onclick: e => { e.preventDefault(); setWhite(targets()); } }, 'All white')));
+      o.mode === 'grad' && S.bulk.scope === 'pages' ? rowChecks('', [checkEl('Gradient per Page', o.perPage, v => { o.perPage = v; },
+        'On: the gradient runs on every Page from start to end. Off: one gradient across all Pages of the range.')]) : null,
+      btnRow(actBtn('Apply color', runColor, { class: 'btn primary' }),
+        actBtn('All white', () => setWhite(targets()), { title: 'Set the encoders in scope to white (color ' + M.WHITE + ')' })));
   }
   function runColor() {
     const o = bulkState.color;
@@ -1580,10 +1608,11 @@
     for (let i = 1; i <= S.scene.pages.length; i++) pageNums[i] = { label: String(i), sure: true };
     const pages = navPages();
     const scope = el('fieldset', null, el('legend', null, 'Scope'),
-      row('Applies to', selectEl({ 0: { label: 'Current Page', sure: true }, 1: { label: 'Page range', sure: true } },
-        o.mode === 'range' ? 1 : 0, v => { o.mode = v ? 'range' : 'page'; render(); })),
-      o.mode === 'range' ? row('From / to', el('span', { class: 'inl' },
-        selectEl(pageNums, o.from, v => { o.from = v; render(); }), selectEl(pageNums, o.to, v => { o.to = v; render(); }))) : null,
+      rowFit('Applies to', [selectEl({ 0: { label: 'Current Page', sure: true }, 1: { label: 'Page range', sure: true } },
+        o.mode === 'range' ? 1 : 0, v => { o.mode = v ? 'range' : 'page'; render(); }),
+        o.mode === 'range' ? selectEl(pageNums, o.from, v => { o.from = v; render(); }, { 'aria-label': 'From Page', class: 'w-page' }) : null,
+        o.mode === 'range' ? el('span', { class: 'hint' }, 'to') : null,
+        o.mode === 'range' ? selectEl(pageNums, o.to, v => { o.to = v; render(); }, { 'aria-label': 'To Page', class: 'w-page' }) : null]),
       el('p', { class: 'muted' }, 'Current: ' + pagesText(pages)));
     pane.replaceChildren(scope, bulkLibrary(pageNums), bulkNav(), bulkPage(pageNums));
   }
@@ -1611,14 +1640,12 @@
     all.forEach((t, i) => { opts[i] = { label: t.name, sure: true }; });
     const pages = navPages();
     return el('fieldset', null, el('legend', null, 'Navigation'),
-      row('Template', selectEl(opts, S.nav.sel, v => { S.nav.sel = v; render(); })),
+      rowFit('Template', [selectEl(opts, S.nav.sel, v => { S.nav.sel = v; render(); }),
+        tpl.builtin ? null : iconBtn('trash', 'Delete the template "' + tpl.name + '"', { class: 'ghost danger', onclick: e => { e.preventDefault(); navDelete(); } })]),
       el('p', { class: 'muted' }, 'Push: ' + M.navTemplateText(tpl) + '. Targets are relative to each Page and wrap around the scene\'s 12 Pages (P1 ← = P12, P1 ↑ = P9).'),
       el('p', { class: 'muted' }, 'Writes to ' + pagesText(pages) + '. Other encoders and Dest 1/2 stay unchanged.'),
-      el('div', { class: 'inl' },
-        el('button', { class: 'btn primary', onclick: e => { e.preventDefault(); runNav(tpl, pages); } }, 'Apply'),
-        el('button', { class: 'btn', title: 'Store the Navigation pushes of Page ' + (S.page + 1) + ' as a template',
-          onclick: e => { e.preventDefault(); navFromCurrent(); } }, 'Save Page ' + (S.page + 1) + ' as template'),
-        tpl.builtin ? null : el('button', { class: 'btn', onclick: e => { e.preventDefault(); navDelete(); } }, 'Delete')),
+      btnRow(actBtn('Apply', () => runNav(tpl, pages), { class: 'btn primary' }),
+        actBtn('Save Page ' + (S.page + 1) + ' as template', navFromCurrent, { title: 'Store the Navigation pushes of Page ' + (S.page + 1) + ' as a template' })),
       el('p', { class: 'muted' }, S.nav.inFolder
         ? 'Own templates are stored in ' + NAV_PATH + ' in the scene folder.'
         : 'Own templates are stored in this browser. With a scene folder open, they are also kept in ' + NAV_PATH + ' there.'));
@@ -1660,13 +1687,10 @@
   function bulkPage(pageNums) {
     const o = bulkState.page;
     return el('fieldset', null, el('legend', null, 'Copy / swap Page'),
-      row('Target page', selectEl(pageNums, o.target, v => { o.target = v; })),
-      row('With settings', el('input', { type: 'checkbox', checked: o.withSettings, onchange: e => { o.withSettings = e.target.checked; render(); } }),
-        'Also copy or swap the Page name, channel and output'),
-      row('Nav on swap', navModeEl(), NAV_MODE_HINT),
-      el('div', { class: 'inl' },
-        el('button', { class: 'btn', onclick: e => { e.preventDefault(); runPage(false); } }, 'Copy Page ' + (S.page + 1) + ' to target'),
-        el('button', { class: 'btn', onclick: e => { e.preventDefault(); runPage(true); } }, 'Swap')));
+      rowFit('Target page', [selectEl(pageNums, o.target, v => { o.target = v; }, { class: 'w-page' }),
+        checkEl('With settings', o.withSettings, v => { o.withSettings = v; render(); }, 'Also copy or swap the Page name, channel and output')]),
+      rowFit('Nav on swap', [navModeEl()], NAV_MODE_HINT),
+      btnRow(actBtn('Copy Page ' + (S.page + 1) + ' to target', () => runPage(false)), actBtn('Swap', () => runPage(true))));
   }
   function runPage(swap) {
     const o = bulkState.page;
@@ -1691,14 +1715,14 @@
     });
     const nodes = [el('legend', null, 'Page library'),
       el('p', { class: 'muted' }, 'Copies Pages between scenes: save them here, open another scene, insert them.'),
-      el('button', { class: 'btn', onclick: e => { e.preventDefault(); libSave(src); } }, 'Save ' + srcText + ' to library')];
+      el('div', { class: 'btnrow top' }, actBtn('Save ' + srcText + ' to library', () => libSave(src)))];
     if (o.entries.length) {
       nodes.push(
-        row('Entry', selectEl(opts, o.sel, v => { o.sel = v; render(); })),
-        row('Insert at Page', selectEl(pageNums, o.at, v => { o.at = v; render(); })),
-        el('div', { class: 'inl' },
-          el('button', { class: 'btn primary', onclick: e => { e.preventDefault(); libInsert(); } }, 'Insert'),
-          el('button', { class: 'btn', onclick: e => { e.preventDefault(); libDelete(); } }, 'Delete')));
+        rowFit('Entry', [selectEl(opts, o.sel, v => { o.sel = v; render(); }),
+          iconBtn('copy', 'Clone this entry under a new name', { class: 'ghost', onclick: e => { e.preventDefault(); libClone(); } }),
+          iconBtn('trash', 'Delete this entry from the library', { class: 'ghost danger', onclick: e => { e.preventDefault(); libDelete(); } })]),
+        rowFit('Insert at Page', [selectEl(pageNums, o.at, v => { o.at = v; render(); }, { class: 'w-page' }),
+          el('button', { class: 'btn primary', onclick: e => { e.preventDefault(); libInsert(); } }, 'Insert')]));
     } else nodes.push(el('p', { class: 'muted' }, 'The library is empty.'));
     nodes.push(el('p', { class: 'muted' }, o.inFolder
       ? 'Entries are files in ' + PAGES_PATH + ' in the scene folder.'
@@ -1711,19 +1735,33 @@
       (S.scene.title ? S.scene.title + ' ' : '') + (titles[0] || 'P' + (pages[0] + 1))) || '').trim();
     if (!name) return;
     const entry = M.pagesToEntry(S.scene, pages[0], pages.length, name);
-    const file = pageFileName(name);
+    if (await libStore(entry)) toast('"' + name + '" saved (' + pages.length + (pages.length === 1 ? ' Page)' : ' Pages)'));
+  }
+  /* Stores an entry in the library (file in the scene folder or browser storage) and selects it. Returns true on success. */
+  async function libStore(entry) {
+    const file = pageFileName(entry.name);
     const i = S.plib.entries.findIndex(x => x.file.toLowerCase() === file.toLowerCase());
-    if (i >= 0 && !confirm('"' + S.plib.entries[i].entry.name + '" already exists. Replace it?')) return;
+    if (i >= 0 && !confirm('"' + S.plib.entries[i].entry.name + '" already exists. Replace it?')) return false;
     if (S.plib.inFolder) {
       try { await L().writeFileAt(S.lib.dir, PAGES_DIR, file, JSON.stringify(entry, null, 2)); }
-      catch (e) { return toast('Could not write ' + PAGES_PATH + '/' + file + ': ' + e.message, true); }
+      catch (e) { toast('Could not write ' + PAGES_PATH + '/' + file + ': ' + e.message, true); return false; }
     }
     if (i >= 0) S.plib.entries[i] = { file, entry }; else S.plib.entries.push({ file, entry });
     S.plib.entries.sort((a, b) => a.file.localeCompare(b.file, undefined, { sensitivity: 'base' }));
-    if (!S.plib.inFolder && !savePagesLocal()) return;
+    if (!S.plib.inFolder && !savePagesLocal()) return false;
     S.plib.sel = S.plib.entries.findIndex(x => x.file === file);
     render();
-    toast('"' + name + '" saved (' + pages.length + (pages.length === 1 ? ' Page)' : ' Pages)'));
+    return true;
+  }
+  async function libClone() {
+    const x = S.plib.entries[S.plib.sel];
+    if (!x) return;
+    const name = (prompt('Name for the copy of "' + x.entry.name + '":', x.entry.name + ' copy') || '').trim();
+    if (!name) return;
+    if (pageFileName(name).toLowerCase() === x.file.toLowerCase()) return toast('Choose a different name', true);
+    const entry = M.deepClone(x.entry);
+    entry.name = name;
+    if (await libStore(entry)) toast('"' + x.entry.name + '" cloned as "' + name + '"');
   }
   function libInsert() {
     const x = S.plib.entries[S.plib.sel];

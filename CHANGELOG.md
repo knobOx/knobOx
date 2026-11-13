@@ -5,6 +5,26 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-11-13
+
+### Added
+
+- Page library: a clone button next to the entry copies it under a new name.
+- Encoder editor: "Same as Abbr" next to Name (on by default, remembered in the browser). While it is on, typing an Abbr also sets the Name and the Name field is locked; turning it on copies the Abbr into the Name.
+
+### Changed
+
+- Encoder editor: Abbr comes first, Name below it.
+- Encoder, Bulk edit and Pages panels, consistent layout: all fields and buttons have the same height, selects have one common width (Page numbers a narrow one), text in fields is left-aligned, labels sit level with the first line of their field, and spacing between rows, sections and buttons is uniform.
+- Checkbox options are stacked under one "Options" label with their text next to the box (Distribute CCs, Set up Push as CC), instead of long labels with a lone checkbox.
+- Related fields share a line: Page range next to "Applies to", "Restart on every Page" next to Start {n}, "With settings" next to the target Page, "Insert" next to "Insert at Page".
+- Help text that belongs to one field sits directly under that field.
+- Page library and Navigation: deleting an entry or an own template is a small trash button next to the selection instead of a separate button.
+
+### Fixed
+
+- Button rows with a primary button (Apply, Rename, Apply color, Insert …): the buttons are aligned on one line again.
+
 ## [1.3.0] - 2026-11-12
 
 ### Added
@@ -143,7 +163,8 @@ First public release.
 - USB-MIDI protocol description in `docs/PROTOCOL.md`, browser test page with capture fixtures.
 - GitHub link in the app header.
 
-[Unreleased]: https://github.com/knobOx/knobOx/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/knobOx/knobOx/compare/v1.3.1...HEAD
+[1.3.1]: https://github.com/knobOx/knobOx/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/knobOx/knobOx/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/knobOx/knobOx/compare/v1.1.2...v1.2.0
 [1.1.2]: https://github.com/knobOx/knobOx/compare/v1.1.1...v1.1.2

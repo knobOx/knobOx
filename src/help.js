@@ -81,7 +81,7 @@
     {
       id: 'encoder', title: 'Encoder tab',
       html: `
-<p>Edits the selected encoder: name and abbreviation (4 characters, shown on the E16), color, and the sections <b>Dest 1</b>, <b>Dest 2</b> and <b>Push</b>. Click a section title to open it.</p>
+<p>Edits the selected encoder: abbreviation (4 characters, shown on the E16), name (the parameter name), color, and the sections <b>Dest 1</b>, <b>Dest 2</b> and <b>Push</b>. Click a section title to open it. With <b>Same as Abbr</b> ticked (the default), the name follows the abbreviation; untick it to give the name its own text.</p>
 <ul>
   <li><b>Type</b> decides what is sent: CC Abs, CC Rel, CC14, NRPN, Note, PC, Pitch Bend and more. The fields below change with the type.</li>
   <li><b>Channel</b> "Page" means the encoder uses the Page channel. Pick 1–16 to override it.</li>
@@ -136,6 +136,7 @@
   <li><b>Save … to library</b> and give it a name. A range of Pages is stored as one entry, with names, channels and outputs.</li>
   <li>Open the other scene, choose the entry and <b>Insert at Page</b>, then <b>Insert</b>. The Pages there are overwritten (Undo brings them back).</li>
 </ol>
+<p>The two small buttons next to the entry <b>clone</b> it under a new name or <b>delete</b> it from the library.</p>
 <p>Navigation pushes move with the Pages: if you insert P1–P4 at P5, "P1 → P2" becomes "P5 → P6". Script actions refer to the script of the scene they end up in.</p>
 <h3>Navigation</h3>
 <p>Writes Navigation pushes from a template onto the Pages in scope. The built-in template <b>Row 1–4</b> matches the Page selector:</p>
@@ -145,7 +146,7 @@
   <tr><td>Encoder 3 ↓</td><td>four Pages ahead (one row down)</td></tr>
   <tr><td>Encoder 4 →</td><td>next Page</td></tr>
 </table>
-<p>The targets wrap around the 12 Pages: from P1, ← goes to P12 and ↑ to P9. <b>Save Page … as template</b> stores the Navigation pushes of the current Page as your own template.</p>
+<p>The targets wrap around the 12 Pages: from P1, ← goes to P12 and ↑ to P9. <b>Save Page … as template</b> stores the Navigation pushes of the current Page as your own template. Own templates can be deleted with the trash button next to the template.</p>
 <h3>Copy / swap Page</h3>
 <p>Copies the current Page onto a target Page or swaps them. "With settings" includes name, channel and output. <b>Nav on swap</b>: "Move with page" keeps Navigation pushes working after a swap; "Stay in place" keeps them at their position, e.g. for a navigation layout that is the same on every Page.</p>`,
     },
